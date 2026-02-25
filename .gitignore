@@ -1,0 +1,21 @@
+# env secrets
+.env
+.env.*
+apps/api/.env
+apps/api/.env.*
+
+# node / build
+node_modules/
+dist/
+coverage/
+
+# prisma generated/cache
+apps/api/node_modules/.prisma/
+
+# logs
+*.log
+
+# OS/IDE
+.vscode/
+.DS_Store
+Thumbs.db

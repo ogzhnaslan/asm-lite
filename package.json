@@ -1,0 +1,9 @@
+{
+  "name": "asm",
+  "private": true,
+  "scripts": {
+    "dev:api": "pnpm --filter @asm/api start:dev",
+    "dev:worker": "pnpm --filter @asm/worker dev",
+    "dev:web": "pnpm --filter @asm/web dev"
+  }
+}

@@ -1,0 +1,21 @@
+﻿services:
+  postgres:
+    image: postgres:16
+    container_name: asm_postgres
+    environment:
+      POSTGRES_USER: asm
+      POSTGRES_PASSWORD: asm123
+      POSTGRES_DB: asmdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - asm_pg:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: asm_redis
+    ports:
+      - "6380:6379"
+
+volumes:
+  asm_pg:
