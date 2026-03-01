@@ -4,6 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+
 }
 
 enum AssetType {
@@ -73,9 +74,27 @@ model ScanRun {
   finishedAt DateTime?
   status     String   @default("RUNNING") // RUNNING|DONE|FAILED
 
+  // ✅ Yeni: taramanın ham sonuç snapshot'ları (HTTP/TLS/PORTS vb.)
+  checkResults ScanCheckResult[]
+
   findings   Finding[]
 
   @@index([assetId])
+}
+
+model ScanCheckResult {
+  id        String   @id @default(cuid())
+
+  scanRunId String
+  scanRun   ScanRun  @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
+
+  type      String   // HTTP_HEALTH / TLS_INFO / PORTS
+  dataJson  Json
+
+  createdAt DateTime @default(now())
+
+  @@index([scanRunId])
+  @@index([type])
 }
 
 model Finding {
@@ -98,7 +117,8 @@ model Finding {
 
   createdAt  DateTime @default(now())
   lastSeenAt DateTime @default(now())
-
+  resolvedAt DateTime?
+  
   @@index([assetId])
   @@index([scanRunId])
   @@index([aiScore])

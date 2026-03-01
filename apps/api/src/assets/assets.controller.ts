@@ -5,7 +5,7 @@ import { FakeAuthGuard } from "../common/fake-auth.guard";
 @UseGuards(FakeAuthGuard)
 @Controller("assets")
 export class AssetsController {
-  constructor(private readonly assetsService: AssetsService) {}
+  constructor(private readonly assetsService: AssetsService) { }
 
   // Domain/IP ekle
   @Post()
@@ -24,7 +24,11 @@ export class AssetsController {
   async requestToken(@Req() req: any, @Param("id") id: string) {
     return this.assetsService.requestHttpToken(req.user.id, id);
   }
-
+  // Verify token üret (DNS TXT doğrulama için)
+  @Post(":id/verify/request-dns-token")
+  async requestDnsToken(@Req() req: any, @Param("id") id: string) {
+    return this.assetsService.requestDnsToken(req.user.id, id);
+  }
   // HTTP verify: URL'den tokenı okuyup asset'i VERIFIED yapar
   @Post(":id/verify/http")
   async verifyHttp(
@@ -33,5 +37,15 @@ export class AssetsController {
     @Body() body: { url: string },
   ) {
     return this.assetsService.verifyHttp(req.user.id, id, body.url);
+  }
+
+  // DNS verify: DNS TXT kaydından tokenı okuyup asset'i VERIFIED yapar
+  @Post(":id/verify/dns")
+  async verifyDns(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { domain?: string },
+  ) {
+    return this.assetsService.verifyDns(req.user.id, id, body.domain);
   }
 }
