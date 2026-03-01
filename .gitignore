@@ -12,6 +12,7 @@ coverage/
 # prisma generated/cache
 apps/api/node_modules/.prisma/
 
+migration/
 # logs
 *.log
 
