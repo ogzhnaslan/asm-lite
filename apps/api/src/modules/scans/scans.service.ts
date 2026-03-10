@@ -1,6 +1,9 @@
 import net from "node:net";
 import tls from "node:tls";
 import axios from "axios";
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { QUEUE_SCAN, JOB_SCAN_RUN } from '../queue/queue.constants';
 import {
   BadRequestException,
   ForbiddenException,
@@ -30,7 +33,10 @@ type TlsInfo = {
 
 @Injectable()
 export class ScansService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    @InjectQueue(QUEUE_SCAN) private readonly scanQueue: Queue,
+  ) { }
 
   private parseHost(value: string): { hostOnly: string; explicitPort: number | null } {
     // "localhost:5555" gibi değerlerde net/tls host kısmı "localhost" olmalı
@@ -169,8 +175,14 @@ export class ScansService {
       },
       select: { id: true, startedAt: true, status: true },
     });
+    await this.scanQueue.add(
+      JOB_SCAN_RUN,
+      { scanRunId: run.id, assetId: asset.id },
+      { removeOnComplete: 1000, removeOnFail: 5000 },
+    );
 
-    try {
+    return { ok: true, scanRunId: run.id, status: "QUEUED" };
+    /*  try {
       const domain = asset.value;
       const { hostOnly, explicitPort } = this.parseHost(domain);
 
@@ -904,5 +916,7 @@ export class ScansService {
 
       throw new InternalServerErrorException("Scan failed");
     }
-  }
-}
+  
+*/
+  } // runNow kapanışı
+} // class kapanışı 

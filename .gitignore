@@ -1,22 +1,48 @@
-# env secrets
+# =========================
+# Environment / Secrets
+# =========================
 .env
 .env.*
 apps/api/.env
 apps/api/.env.*
+apps/worker/.env
+apps/worker/.env.*
 
-# node / build
+# =========================
+# Node / Build outputs
+# =========================
 node_modules/
 dist/
 coverage/
+*.tsbuildinfo
 
-# prisma generated/cache
-apps/api/node_modules/.prisma/
+# Next.js / React build (ileride web gelince)
+.next/
+out/
 
-migration/
-# logs
+# =========================
+# pnpm
+# =========================
+.pnpm-store/
+pnpm-debug.log*
+
+# =========================
+# Logs
+# =========================
 *.log
 
-# OS/IDE
+# =========================
+# Prisma generated/cache
+# =========================
+**/node_modules/.prisma/
+
+
+# (Prisma studio / temp)
+prisma/.cache/
+
+# =========================
+# OS / IDE
+# =========================
 .vscode/
 .DS_Store
 Thumbs.db

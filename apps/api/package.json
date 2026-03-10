@@ -20,11 +20,14 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
     "@prisma/client": "^7.4.1",
     "axios": "^1.13.5",
+    "bullmq": "^5.70.1",
+    "ioredis": "^5.10.0",
     "pg": "^8.18.0",
     "prisma": "^7.4.1",
     "reflect-metadata": "^0.2.2",
