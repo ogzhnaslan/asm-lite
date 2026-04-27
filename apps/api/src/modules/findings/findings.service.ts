@@ -5,8 +5,15 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class FindingsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(assetId: string) {
+  async list(userId: string, assetId: string) {
     if (!assetId) throw new BadRequestException('assetId is required');
+
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: assetId, userId },
+      select: { id: true },
+    });
+
+    if (!asset) throw new NotFoundException('Asset not found');
 
     return this.prisma.finding.findMany({
       where: { assetId },
@@ -14,16 +21,17 @@ export class FindingsService {
     });
   }
 
-  // ADIM 6B: Finding acknowledge (okundu işareti)
-  async ack(id: string) {
+  async ack(userId: string, id: string) {
     if (!id) throw new BadRequestException('id is required');
 
-    const existing = await this.prisma.finding.findFirst({
+    const finding = await this.prisma.finding.findFirst({
       where: { id },
-      select: { id: true },
+      select: { id: true, asset: { select: { userId: true } } },
     });
 
-    if (!existing) throw new NotFoundException('Finding not found');
+    if (!finding || finding.asset.userId !== userId) {
+      throw new NotFoundException('Finding not found');
+    }
 
     return this.prisma.finding.update({
       where: { id },

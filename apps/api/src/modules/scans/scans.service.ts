@@ -16,9 +16,18 @@ export class ScansService {
     @InjectQueue(QUEUE_SCAN) private readonly scanQueue: Queue,
   ) { }
 
-  async history(assetId: string) {
+  async history(userId: string, assetId: string) {
     if (!assetId) {
       throw new BadRequestException("assetId is required");
+    }
+
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: assetId, userId },
+      select: { id: true },
+    });
+
+    if (!asset) {
+      throw new NotFoundException("Asset not found");
     }
 
     return this.prisma.scanRun.findMany({
@@ -34,13 +43,13 @@ export class ScansService {
     });
   }
 
-  async runNow(assetId: string) {
+  async runNow(userId: string, assetId: string) {
     if (!assetId) {
       throw new BadRequestException("assetId is required");
     }
 
     const asset = await this.prisma.asset.findFirst({
-      where: { id: assetId },
+      where: { id: assetId, userId },
       select: { id: true, status: true, type: true, value: true },
     });
 
