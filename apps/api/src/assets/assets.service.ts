@@ -16,10 +16,15 @@ export class AssetsService {
       throw new BadRequestException("Domain girerken http/https yazma. Örn: example.com");
     }
 
-    // Basit doğrulama (MVP)
     if (type === "IP") {
-      const ipv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/;
-      if (!ipv4.test(value)) throw new BadRequestException("Geçerli bir IPv4 gir");
+      const octets = value.split(".");
+      const validIp =
+        octets.length === 4 &&
+        octets.every((o) => {
+          const n = parseInt(o, 10);
+          return /^\d+$/.test(o) && n >= 0 && n <= 255;
+        });
+      if (!validIp) throw new BadRequestException("Geçerli bir IPv4 gir");
     }
 
     try {
@@ -121,7 +126,20 @@ export class AssetsService {
     const last = asset.verifications[0];
     if (!last) throw new BadRequestException("Önce request-token çağırmalısın");
 
-    const res = await fetch(url);
+    let res: Response;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+    } catch {
+      throw new BadRequestException("URL'ye erişilemedi");
+    }
+
+    if (!res.ok) {
+      throw new BadRequestException(`HTTP ${res.status}: Token dosyası okunamadı`);
+    }
+
     const text = await res.text();
 
     if (!text.includes(last.token)) {

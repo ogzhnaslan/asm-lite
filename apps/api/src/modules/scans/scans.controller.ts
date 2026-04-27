@@ -1,17 +1,19 @@
-console.log('✅ ScansController file loaded');
-import { Controller, Get, Post, Query } from '@nestjs/common';
+import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ScansService } from './scans.service';
+import { FakeAuthGuard } from '../../common/fake-auth.guard';
 
+@UseGuards(FakeAuthGuard)
 @Controller('scans')
 export class ScansController {
   constructor(private readonly scansService: ScansService) {}
 
   @Post('run-now')
-  async runNow(@Query('assetId') assetId: string) {
+  runNow(@Query('assetId') assetId: string) {
     return this.scansService.runNow(assetId);
   }
+
   @Get('history')
-history(@Query('assetId') assetId: string) {
-  return this.scansService.history(assetId);
-}
+  history(@Query('assetId') assetId: string) {
+    return this.scansService.history(assetId);
+  }
 }
