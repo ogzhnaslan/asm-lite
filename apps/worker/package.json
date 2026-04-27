@@ -9,6 +9,7 @@
         "lab:500": "node lab/lab-500.js"
     },
     "dependencies": {
+        "@anthropic-ai/sdk": "^0.91.1",
         "@prisma/adapter-pg": "^7.4.1",
         "@prisma/client": "^7.4.1",
         "bullmq": "^5.70.1",

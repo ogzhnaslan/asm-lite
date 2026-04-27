@@ -16,6 +16,7 @@ const { checkHttp } = require("./checks/http.check");
 const { processPortFindings } = require("./findings/port.findings");
 const { processTlsFindings } = require("./findings/tls.findings");
 const { processHttpFindings } = require("./findings/http.findings");
+const { analyzeFindings } = require("./ai/analyze");
 
 // --------------------
 // Bootstrap
@@ -120,6 +121,34 @@ async function runScan(job) {
     await processPortFindings(prisma, { asset, scanRunId, portsResult, prevPortsSnap });
     await processTlsFindings(prisma, { asset, scanRunId, tlsResult, prevTlsSnap });
     await processHttpFindings(prisma, { asset, scanRunId, health, prevHttpSnap });
+
+    // --------------------
+    // AI analysis — enrich active findings with Claude-generated scores
+    // --------------------
+    const activeFindings = await prisma.finding.findMany({
+        where: { scanRunId, resolvedAt: null },
+        select: { id: true, key: true, type: true, severity: true, dataJson: true },
+    });
+
+    if (activeFindings.length > 0) {
+        log("ai analyze", { count: activeFindings.length });
+        const aiResults = await analyzeFindings(asset, activeFindings);
+
+        if (aiResults.length > 0) {
+            const resultMap = new Map(aiResults.map((r) => [r.key, r]));
+            await Promise.all(
+                activeFindings.map((f) => {
+                    const ai = resultMap.get(f.key);
+                    if (!ai) return Promise.resolve();
+                    return prisma.finding.update({
+                        where: { id: f.id },
+                        data: { aiScore: ai.aiScore, aiWhyJson: ai.aiWhyJson },
+                    });
+                }),
+            );
+            log("ai enriched", { updated: aiResults.length });
+        }
+    }
 
     // --------------------
     // Finish
