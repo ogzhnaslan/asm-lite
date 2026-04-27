@@ -4,7 +4,9 @@
     "version": "0.0.1",
     "type": "commonjs",
     "scripts": {
-        "start": "node worker.js"
+        "start": "node src/worker.js",
+        "lab:200": "node lab/lab-200.js",
+        "lab:500": "node lab/lab-500.js"
     },
     "dependencies": {
         "@prisma/adapter-pg": "^7.4.1",
