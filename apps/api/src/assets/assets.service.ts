@@ -1,11 +1,15 @@
 import crypto from "crypto";
-import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { ScanScheduleService, VALID_INTERVALS } from "../modules/scans/scan-schedule.service";
 import * as dns from "node:dns/promises";
 
 @Injectable()
 export class AssetsService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly schedule: ScanScheduleService,
+  ) {}
 
   async create(userId: string, body: { type?: "DOMAIN" | "IP"; value: string }) {
     const type = body.type ?? "DOMAIN";
@@ -28,15 +32,8 @@ export class AssetsService {
     }
 
     try {
-      return await this.prisma.asset.create({
-        data: {
-          userId,
-          type,
-          value,
-        },
-      });
+      return await this.prisma.asset.create({ data: { userId, type, value } });
     } catch (e: any) {
-      // Prisma unique constraint: P2002
       if (e?.code === "P2002") {
         throw new ConflictException("Bu asset zaten ekli (aynı kullanıcı için tekrar eklenemez).");
       }
@@ -51,7 +48,29 @@ export class AssetsService {
     });
   }
 
-  // HTTP file için token üret
+  async get(userId: string, assetId: string) {
+    const asset = await this.prisma.asset.findFirst({ where: { id: assetId, userId } });
+    if (!asset) throw new NotFoundException("Asset bulunamadı");
+    return asset;
+  }
+
+  async updateScanInterval(userId: string, assetId: string, interval: string) {
+    if (!VALID_INTERVALS.includes(interval)) {
+      throw new BadRequestException(`Geçersiz interval. Seçenekler: ${VALID_INTERVALS.join(", ")}`);
+    }
+
+    const asset = await this.prisma.asset.findFirst({ where: { id: assetId, userId } });
+    if (!asset) throw new NotFoundException("Asset bulunamadı");
+
+    await this.prisma.asset.update({ where: { id: assetId }, data: { scanInterval: interval } });
+
+    if (asset.status === "VERIFIED") {
+      await this.schedule.schedule(assetId, interval);
+    }
+
+    return { ok: true, assetId, scanInterval: interval };
+  }
+
   async requestHttpToken(userId: string, assetId: string) {
     const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });
     if (!asset || asset.userId !== userId) {
@@ -59,14 +78,7 @@ export class AssetsService {
     }
 
     const token = crypto.randomBytes(16).toString("hex");
-
-    await this.prisma.assetVerification.create({
-      data: {
-        assetId,
-        method: "HTTP_FILE",
-        token,
-      },
-    });
+    await this.prisma.assetVerification.create({ data: { assetId, method: "HTTP_FILE", token } });
 
     return {
       assetId,
@@ -76,7 +88,6 @@ export class AssetsService {
     };
   }
 
-  // ✅ DNS TXT için token üret + talimat döndür
   async requestDnsToken(userId: string, assetId: string) {
     const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });
     if (!asset || asset.userId !== userId) {
@@ -88,14 +99,7 @@ export class AssetsService {
     }
 
     const token = crypto.randomBytes(16).toString("hex");
-
-    await this.prisma.assetVerification.create({
-      data: {
-        assetId,
-        method: "DNS_TXT",
-        token,
-      },
-    });
+    await this.prisma.assetVerification.create({ data: { assetId, method: "DNS_TXT", token } });
 
     const host = "_asm-verify";
     const fqdn = `${host}.${asset.value}`;
@@ -105,12 +109,7 @@ export class AssetsService {
       assetId,
       method: "DNS_TXT",
       token,
-      dns: {
-        type: "TXT",
-        host,
-        fqdn,
-        value,
-      },
+      dns: { type: "TXT", host, fqdn, value },
       instruction: `DNS panelinde TXT kaydı ekle: Host/Name="${host}"  Value="${value}" (tam kayıt: ${fqdn})`,
     };
   }
@@ -141,29 +140,20 @@ export class AssetsService {
     }
 
     const text = await res.text();
-
     if (!text.includes(last.token)) {
       throw new BadRequestException("Token dosyada bulunamadı");
     }
 
-    await this.prisma.assetVerification.update({
-      where: { id: last.id },
-      data: { verifiedAt: new Date() },
-    });
+    await this.prisma.assetVerification.update({ where: { id: last.id }, data: { verifiedAt: new Date() } });
+    await this.prisma.asset.update({ where: { id: assetId }, data: { status: "VERIFIED" } });
 
-    await this.prisma.asset.update({
-      where: { id: assetId },
-      data: { status: "VERIFIED" },
-    });
+    await this.schedule.schedule(assetId, asset.scanInterval);
 
     return { ok: true, assetId, status: "VERIFIED" };
   }
 
   async verifyDns(userId: string, assetId: string, domain?: string) {
-    // 1) Asset'i çek ve kullanıcıya ait mi kontrol et
-    const asset = await this.prisma.asset.findUnique({
-      where: { id: assetId },
-    });
+    const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });
 
     if (!asset || asset.userId !== userId) {
       throw new BadRequestException("Asset bulunamadı");
@@ -173,7 +163,6 @@ export class AssetsService {
       throw new BadRequestException("DNS doğrulama sadece DOMAIN asset'leri için geçerlidir");
     }
 
-    // 2) DNS token'ını (en son üretilen DNS_TXT token) al
     const lastDns = await this.prisma.assetVerification.findFirst({
       where: { assetId, method: "DNS_TXT" },
       orderBy: { createdAt: "desc" },
@@ -184,13 +173,9 @@ export class AssetsService {
       throw new BadRequestException("Önce request-dns-token çağırmalısın");
     }
 
-    // 3) Doğrulayacağımız domain: body.domain geldiyse onu, gelmediyse asset.value kullan
     const d = (domain?.trim().toLowerCase() || asset.value).replace(/\.$/, "");
-
-    // 4) DNS'ten TXT kaydını oku: _asm-verify.<domain>
     const fqdn = `_asm-verify.${d}`;
 
-    // Cache/propagation sıkıntısı yaşamamak için sabit resolver (Cloudflare IP)
     dns.setServers(["162.159.24.201", "162.159.25.42"]);
 
     let txtRecords: string[][];
@@ -203,22 +188,14 @@ export class AssetsService {
     const flattened = txtRecords.map((parts) => parts.join(""));
     const expected = `asm-verify=${lastDns.token}`;
 
-    const found = flattened.some((v) => v.includes(expected));
-    if (!found) {
+    if (!flattened.some((v) => v.includes(expected))) {
       throw new BadRequestException("Token DNS TXT kaydında bulunamadı");
     }
 
-    // 5) Verification'ı verified yap
-    await this.prisma.assetVerification.update({
-      where: { id: lastDns.id },
-      data: { verifiedAt: new Date() },
-    });
+    await this.prisma.assetVerification.update({ where: { id: lastDns.id }, data: { verifiedAt: new Date() } });
+    await this.prisma.asset.update({ where: { id: assetId }, data: { status: "VERIFIED" } });
 
-    // 6) Asset'i VERIFIED yap
-    await this.prisma.asset.update({
-      where: { id: assetId },
-      data: { status: "VERIFIED" },
-    });
+    await this.schedule.schedule(assetId, asset.scanInterval);
 
     return { ok: true, assetId, status: "VERIFIED", method: "DNS_TXT" };
   }

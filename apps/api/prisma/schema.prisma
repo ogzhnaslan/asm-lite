@@ -38,11 +38,12 @@ model Asset {
   userId    String
   user      User        @relation(fields: [userId], references: [id])
 
-  type      AssetType
-  value     String
-  status    AssetStatus @default(PENDING)
-  critical  Boolean     @default(false)
-  createdAt DateTime    @default(now())
+  type         AssetType
+  value        String
+  status       AssetStatus @default(PENDING)
+  critical     Boolean     @default(false)
+  scanInterval String      @default("24h") // 1h | 6h | 24h | 7d
+  createdAt    DateTime    @default(now())
 
   verifications AssetVerification[]
   scanRuns       ScanRun[]

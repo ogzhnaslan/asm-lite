@@ -39,10 +39,10 @@ log("listening queue: scan");
 // Job handler
 // --------------------
 async function runScan(job) {
-    const { scanRunId, assetId } = job.data;
-    log("job start", { name: job.name, scanRunId, assetId });
+    const { assetId } = job.data;
+    let { scanRunId } = job.data;
 
-    await prisma.scanRun.update({ where: { id: scanRunId }, data: { status: "RUNNING" } });
+    log("job start", { name: job.name, scanRunId: scanRunId ?? "(scheduled)", assetId });
 
     const asset = await prisma.asset.findUnique({
         where: { id: assetId },
@@ -50,15 +50,30 @@ async function runScan(job) {
     });
 
     if (!asset) {
-        await prisma.scanRun.update({ where: { id: scanRunId }, data: { status: "FAILED", finishedAt: new Date() } });
+        if (scanRunId) {
+            await prisma.scanRun.update({ where: { id: scanRunId }, data: { status: "FAILED", finishedAt: new Date() } });
+        }
         log("asset not found → FAILED", { assetId });
         return { ok: false, reason: "ASSET_NOT_FOUND", scanRunId };
     }
 
     if (asset.status !== "VERIFIED") {
-        await prisma.scanRun.update({ where: { id: scanRunId }, data: { status: "FAILED", finishedAt: new Date() } });
+        if (scanRunId) {
+            await prisma.scanRun.update({ where: { id: scanRunId }, data: { status: "FAILED", finishedAt: new Date() } });
+        }
         log("asset not verified → FAILED", { assetId, status: asset.status });
         return { ok: false, reason: "ASSET_NOT_VERIFIED", scanRunId };
+    }
+
+    // Scheduled jobs have no pre-created ScanRun — create one now
+    if (!scanRunId) {
+        const run = await prisma.scanRun.create({
+            data: { assetId, status: "RUNNING" },
+            select: { id: true },
+        });
+        scanRunId = run.id;
+    } else {
+        await prisma.scanRun.update({ where: { id: scanRunId }, data: { status: "RUNNING" } });
     }
 
     const host = parseHost(asset.value);
