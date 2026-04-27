@@ -1,55 +1,49 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
-import { AssetsService } from "./assets.service";
-import { FakeAuthGuard } from "../common/fake-auth.guard";
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { AssetsService } from './assets.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CurrentUser } from '../common/current-user.decorator';
+import type { AuthUser } from '../common/current-user.decorator';
 
-interface AuthedRequest {
-  user: { id: string; email: string };
-}
-
-@UseGuards(FakeAuthGuard)
-@Controller("assets")
+@UseGuards(JwtAuthGuard)
+@Controller('assets')
 export class AssetsController {
-  constructor(private readonly assetsService: AssetsService) { }
+  constructor(private readonly assetsService: AssetsService) {}
 
-  // Domain/IP ekle
   @Post()
-  async create(@Req() req: AuthedRequest, @Body() body: { type?: "DOMAIN" | "IP"; value: string }) {
-    return this.assetsService.create(req.user.id, body);
+  create(@CurrentUser() user: AuthUser, @Body() body: { type?: 'DOMAIN' | 'IP'; value: string }) {
+    return this.assetsService.create(user.id, body);
   }
 
-  // Kullanıcının asset'lerini listele
   @Get()
-  async list(@Req() req: AuthedRequest) {
-    return this.assetsService.list(req.user.id);
+  list(@CurrentUser() user: AuthUser) {
+    return this.assetsService.list(user.id);
   }
 
-  // Verify token üret (HTTP file doğrulama için)
-  @Post(":id/verify/request-token")
-  async requestToken(@Req() req: AuthedRequest, @Param("id") id: string) {
-    return this.assetsService.requestHttpToken(req.user.id, id);
+  @Post(':id/verify/request-token')
+  requestToken(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.assetsService.requestHttpToken(user.id, id);
   }
-  // Verify token üret (DNS TXT doğrulama için)
-  @Post(":id/verify/request-dns-token")
-  async requestDnsToken(@Req() req: AuthedRequest, @Param("id") id: string) {
-    return this.assetsService.requestDnsToken(req.user.id, id);
+
+  @Post(':id/verify/request-dns-token')
+  requestDnsToken(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.assetsService.requestDnsToken(user.id, id);
   }
-  // HTTP verify: URL'den tokenı okuyup asset'i VERIFIED yapar
-  @Post(":id/verify/http")
-  async verifyHttp(
-    @Req() req: AuthedRequest,
-    @Param("id") id: string,
+
+  @Post(':id/verify/http')
+  verifyHttp(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
     @Body() body: { url: string },
   ) {
-    return this.assetsService.verifyHttp(req.user.id, id, body.url);
+    return this.assetsService.verifyHttp(user.id, id, body.url);
   }
 
-  // DNS verify: DNS TXT kaydından tokenı okuyup asset'i VERIFIED yapar
-  @Post(":id/verify/dns")
-  async verifyDns(
-    @Req() req: AuthedRequest,
-    @Param("id") id: string,
+  @Post(':id/verify/dns')
+  verifyDns(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
     @Body() body: { domain?: string },
   ) {
-    return this.assetsService.verifyDns(req.user.id, id, body.domain);
+    return this.assetsService.verifyDns(user.id, id, body.domain);
   }
 }

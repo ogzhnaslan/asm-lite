@@ -1,23 +1,21 @@
-import { Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ScansService } from './scans.service';
-import { FakeAuthGuard } from '../../common/fake-auth.guard';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { CurrentUser } from '../../common/current-user.decorator';
+import type { AuthUser } from '../../common/current-user.decorator';
 
-interface AuthedRequest {
-  user: { id: string; email: string };
-}
-
-@UseGuards(FakeAuthGuard)
+@UseGuards(JwtAuthGuard)
 @Controller('scans')
 export class ScansController {
   constructor(private readonly scansService: ScansService) {}
 
   @Post('run-now')
-  runNow(@Req() req: AuthedRequest, @Query('assetId') assetId: string) {
-    return this.scansService.runNow(req.user.id, assetId);
+  runNow(@CurrentUser() user: AuthUser, @Query('assetId') assetId: string) {
+    return this.scansService.runNow(user.id, assetId);
   }
 
   @Get('history')
-  history(@Req() req: AuthedRequest, @Query('assetId') assetId: string) {
-    return this.scansService.history(req.user.id, assetId);
+  history(@CurrentUser() user: AuthUser, @Query('assetId') assetId: string) {
+    return this.scansService.history(user.id, assetId);
   }
 }
