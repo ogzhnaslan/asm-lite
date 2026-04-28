@@ -54,6 +54,11 @@ export class AssetsController {
     return this.assetsService.setCritical(user.id, id, body.critical);
   }
 
+  @Post(":id/verify/dev")
+  devVerify(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.assetsService.devVerify(user.id, id);
+  }
+
   @Post(":id/verify/request-token")
   requestToken(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.assetsService.requestHttpToken(user.id, id);

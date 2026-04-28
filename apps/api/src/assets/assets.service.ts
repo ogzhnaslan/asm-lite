@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { ScanScheduleService, VALID_INTERVALS } from "../modules/scans/scan-schedule.service";
 import * as dns from "node:dns/promises";
@@ -107,6 +107,20 @@ export class AssetsService {
     }
 
     return { ok: true, assetId, scanInterval: interval };
+  }
+
+  async devVerify(userId: string, assetId: string) {
+    if (process.env.NODE_ENV === "production") {
+      throw new ForbiddenException("Dev verify prodüksiyonda kullanılamaz");
+    }
+
+    const asset = await this.prisma.asset.findFirst({ where: { id: assetId, userId } });
+    if (!asset) throw new NotFoundException("Asset bulunamadı");
+
+    await this.prisma.asset.update({ where: { id: assetId }, data: { status: "VERIFIED" } });
+    await this.schedule.schedule(assetId, asset.scanInterval);
+
+    return { ok: true, assetId, status: "VERIFIED", method: "DEV_BYPASS" };
   }
 
   async requestHttpToken(userId: string, assetId: string) {
