@@ -6,7 +6,7 @@ import type { AuthUser } from '../common/current-user.decorator';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Post('register')
   register(@Body() body: { email: string; password: string }) {
