@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { AssetsService } from "./assets.service";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { CurrentUser } from "../common/current-user.decorator";
@@ -15,13 +15,25 @@ export class AssetsController {
   }
 
   @Get()
-  list(@CurrentUser() user: AuthUser) {
-    return this.assetsService.list(user.id);
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.assetsService.list(user.id, {
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
   }
 
   @Get(":id")
   get(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.assetsService.get(user.id, id);
+  }
+
+  @Delete(":id")
+  remove(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.assetsService.remove(user.id, id);
   }
 
   @Patch(":id/scan-interval")
@@ -31,6 +43,15 @@ export class AssetsController {
     @Body() body: { interval: string },
   ) {
     return this.assetsService.updateScanInterval(user.id, id, body.interval);
+  }
+
+  @Patch(":id/critical")
+  setCritical(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() body: { critical: boolean },
+  ) {
+    return this.assetsService.setCritical(user.id, id, body.critical);
   }
 
   @Post(":id/verify/request-token")

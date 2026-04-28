@@ -39,6 +39,7 @@ export class ScansService {
         startedAt: true,
         finishedAt: true,
         status: true,
+        _count: { select: { findings: true } },
       },
     });
   }

@@ -10,8 +10,22 @@ export class FindingsController {
   constructor(private readonly findingsService: FindingsService) {}
 
   @Get()
-  list(@CurrentUser() user: AuthUser, @Query('assetId') assetId: string) {
-    return this.findingsService.list(user.id, assetId);
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query('assetId') assetId: string,
+    @Query('severity') severity?: string,
+    @Query('resolved') resolved?: string,
+    @Query('isNew') isNew?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.findingsService.list(user.id, assetId, {
+      severity,
+      resolved,
+      isNew,
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
   }
 
   @Patch(':id/ack')

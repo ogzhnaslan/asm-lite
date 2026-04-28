@@ -41,17 +41,55 @@ export class AssetsService {
     }
   }
 
-  async list(userId: string) {
-    return this.prisma.asset.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-    });
+  async list(userId: string, opts: { page?: number; limit?: number } = {}) {
+    const page = Math.max(1, opts.page ?? 1);
+    const limit = Math.min(100, Math.max(1, opts.limit ?? 50));
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await Promise.all([
+      this.prisma.asset.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      this.prisma.asset.count({ where: { userId } }),
+    ]);
+
+    return { items, total, page, limit };
   }
 
   async get(userId: string, assetId: string) {
     const asset = await this.prisma.asset.findFirst({ where: { id: assetId, userId } });
     if (!asset) throw new NotFoundException("Asset bulunamadı");
     return asset;
+  }
+
+  async remove(userId: string, assetId: string) {
+    const asset = await this.prisma.asset.findFirst({ where: { id: assetId, userId } });
+    if (!asset) throw new NotFoundException("Asset bulunamadı");
+
+    await this.schedule.unschedule(assetId);
+
+    await this.prisma.$transaction([
+      this.prisma.finding.deleteMany({ where: { assetId } }),
+      this.prisma.scanRun.deleteMany({ where: { assetId } }),
+      this.prisma.assetVerification.deleteMany({ where: { assetId } }),
+      this.prisma.asset.delete({ where: { id: assetId } }),
+    ]);
+
+    return { ok: true, assetId };
+  }
+
+  async setCritical(userId: string, assetId: string, critical: boolean) {
+    if (typeof critical !== "boolean") {
+      throw new BadRequestException("critical boolean olmalı");
+    }
+    const asset = await this.prisma.asset.findFirst({ where: { id: assetId, userId } });
+    if (!asset) throw new NotFoundException("Asset bulunamadı");
+
+    await this.prisma.asset.update({ where: { id: assetId }, data: { critical } });
+    return { ok: true, assetId, critical };
   }
 
   async updateScanInterval(userId: string, assetId: string, interval: string) {
