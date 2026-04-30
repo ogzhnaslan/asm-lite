@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { JOB_SCAN_RUN, QUEUE_SCAN } from '../queue/queue.constants';
+import { SCAN_INTERVALS } from '@asm/shared';
 
 const INTERVAL_MS: Record<string, number> = {
   '1h':  1 * 60 * 60 * 1000,
@@ -10,7 +11,8 @@ const INTERVAL_MS: Record<string, number> = {
   '7d':  7 * 24 * 60 * 60 * 1000,
 };
 
-export const VALID_INTERVALS = Object.keys(INTERVAL_MS);
+/** @deprecated import SCAN_INTERVALS from '@asm/shared' */
+export const VALID_INTERVALS: string[] = [...SCAN_INTERVALS];
 
 @Injectable()
 export class ScanScheduleService {

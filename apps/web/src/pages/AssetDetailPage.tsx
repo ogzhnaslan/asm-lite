@@ -9,7 +9,7 @@ import { Spinner } from '../components/Spinner';
 import { SeverityBadge, ScanStatusBadge } from '../components/Badge';
 import type { FindingSeverity, ScanStatus } from '../types';
 
-const INTERVALS = ['1h', '6h', '24h', '7d'];
+import { SCAN_INTERVALS } from '@asm/shared';
 
 export function AssetDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -21,6 +21,7 @@ export function AssetDetailPage() {
   const [isNewFilter, setIsNewFilter] = useState('');
   const [findingsPage, setFindingsPage] = useState(1);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [scanQueued, setScanQueued] = useState(false);
 
   const assetQ = useQuery({ queryKey: ['asset', id], queryFn: () => getAsset(id!) });
   const asset = assetQ.data;
@@ -29,6 +30,11 @@ export function AssetDetailPage() {
     queryKey: ['scans', id],
     queryFn: () => getScanHistory(id!),
     enabled: tab === 'history',
+    refetchInterval: (q) => {
+      const runs = q.state.data;
+      if (!runs) return false;
+      return runs.some(r => r.status === 'RUNNING') ? 3000 : false;
+    },
   });
 
   const findingsQ = useQuery({
@@ -45,7 +51,12 @@ export function AssetDetailPage() {
 
   const runNowMut = useMutation({
     mutationFn: () => runNow(id!),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['scans', id] }),
+    onSuccess: () => {
+      setScanQueued(true);
+      setTab('history');
+      setTimeout(() => setScanQueued(false), 4000);
+      qc.invalidateQueries({ queryKey: ['scans', id] });
+    },
   });
 
   const deleteMut = useMutation({
@@ -88,6 +99,14 @@ export function AssetDetailPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
+      {/* Scan queued notification */}
+      {scanQueued && (
+        <div className="mb-4 bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
+          <Spinner size="sm" />
+          Tarama kuyruğa eklendi — sonuçlar geldiğinde görünecek.
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-6">
         <Link to="/assets" className="text-sm text-slate-500 hover:text-slate-700 mb-2 inline-block">
@@ -129,7 +148,7 @@ export function AssetDetailPage() {
         <div>
           <p className="text-xs text-slate-500 mb-1 font-medium">Tarama Aralığı</p>
           <div className="flex gap-1">
-            {INTERVALS.map(iv => (
+            {SCAN_INTERVALS.map(iv => (
               <button
                 key={iv}
                 onClick={() => intervalMut.mutate(iv)}

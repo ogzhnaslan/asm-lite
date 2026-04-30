@@ -3,6 +3,9 @@ import { AssetsService } from "./assets.service";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { CurrentUser } from "../common/current-user.decorator";
 import type { AuthUser } from "../common/current-user.decorator";
+import { CreateAssetDto } from "./dto/create-asset.dto";
+import { SetCriticalDto, UpdateScanIntervalDto } from "./dto/update-asset.dto";
+import { VerifyDnsDto, VerifyHttpDto } from "./dto/verify-asset.dto";
 
 @UseGuards(JwtAuthGuard)
 @Controller("assets")
@@ -10,7 +13,7 @@ export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}
 
   @Post()
-  create(@CurrentUser() user: AuthUser, @Body() body: { type?: "DOMAIN" | "IP"; value: string }) {
+  create(@CurrentUser() user: AuthUser, @Body() body: CreateAssetDto) {
     return this.assetsService.create(user.id, body);
   }
 
@@ -40,7 +43,7 @@ export class AssetsController {
   updateScanInterval(
     @CurrentUser() user: AuthUser,
     @Param("id") id: string,
-    @Body() body: { interval: string },
+    @Body() body: UpdateScanIntervalDto,
   ) {
     return this.assetsService.updateScanInterval(user.id, id, body.interval);
   }
@@ -49,7 +52,7 @@ export class AssetsController {
   setCritical(
     @CurrentUser() user: AuthUser,
     @Param("id") id: string,
-    @Body() body: { critical: boolean },
+    @Body() body: SetCriticalDto,
   ) {
     return this.assetsService.setCritical(user.id, id, body.critical);
   }
@@ -73,7 +76,7 @@ export class AssetsController {
   verifyHttp(
     @CurrentUser() user: AuthUser,
     @Param("id") id: string,
-    @Body() body: { url: string },
+    @Body() body: VerifyHttpDto,
   ) {
     return this.assetsService.verifyHttp(user.id, id, body.url);
   }
@@ -82,7 +85,7 @@ export class AssetsController {
   verifyDns(
     @CurrentUser() user: AuthUser,
     @Param("id") id: string,
-    @Body() body: { domain?: string },
+    @Body() body: VerifyDnsDto,
   ) {
     return this.assetsService.verifyDns(user.id, id, body.domain);
   }

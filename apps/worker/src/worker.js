@@ -13,9 +13,11 @@ const { parseHost } = require("./utils/network");
 const { checkPorts } = require("./checks/ports.check");
 const { checkTls } = require("./checks/tls.check");
 const { checkHttp } = require("./checks/http.check");
+const { checkSecurityHeaders } = require("./checks/security-headers.check");
 const { processPortFindings } = require("./findings/port.findings");
 const { processTlsFindings } = require("./findings/tls.findings");
 const { processHttpFindings } = require("./findings/http.findings");
+const { processSecurityHeaderFindings } = require("./findings/security-headers.findings");
 const { analyzeFindings } = require("./ai/analyze");
 
 // --------------------
@@ -78,28 +80,37 @@ async function runScan(job) {
     }
 
     const host = parseHost(asset.value);
+    const isDomain = asset.type === "DOMAIN";
 
     // --------------------
     // Run all checks in parallel
     // --------------------
-    const [portsResult, tlsResult, health] = await Promise.all([
+    const [portsResult, tlsResult, health, headersResult] = await Promise.all([
         checkPorts(host),
         checkTls(host),
         checkHttp(asset.value),
+        isDomain ? checkSecurityHeaders(asset.value) : Promise.resolve({ ok: false, reason: "IP_ASSET" }),
     ]);
 
     log("ports", { open: portsResult.openPorts });
     log("tls", { ok: tlsResult.ok, daysLeft: tlsResult.daysLeft, error: tlsResult.error });
     log("http", { statusCode: health.statusCode, latencyMs: health.latencyMs });
+    if (isDomain) log("headers", { missing: headersResult.missing ?? [], ok: headersResult.ok });
 
     // --------------------
     // Save snapshots
     // --------------------
-    await Promise.all([
+    const snapshotOps = [
         prisma.scanCheckResult.create({ data: { scanRunId, type: "PORTS", dataJson: portsResult } }),
         prisma.scanCheckResult.create({ data: { scanRunId, type: "TLS_INFO", dataJson: tlsResult } }),
         prisma.scanCheckResult.create({ data: { scanRunId, type: "HTTP_HEALTH", dataJson: health } }),
-    ]);
+    ];
+    if (isDomain) {
+        snapshotOps.push(
+            prisma.scanCheckResult.create({ data: { scanRunId, type: "SECURITY_HEADERS", dataJson: headersResult } })
+        );
+    }
+    await Promise.all(snapshotOps);
 
     // --------------------
     // Load previous snapshots for change detection
@@ -121,9 +132,12 @@ async function runScan(job) {
     await processPortFindings(prisma, { asset, scanRunId, portsResult, prevPortsSnap });
     await processTlsFindings(prisma, { asset, scanRunId, tlsResult, prevTlsSnap });
     await processHttpFindings(prisma, { asset, scanRunId, health, prevHttpSnap });
+    if (isDomain) {
+        await processSecurityHeaderFindings(prisma, { asset, scanRunId, headersResult });
+    }
 
     // --------------------
-    // AI analysis — enrich active findings with Claude-generated scores
+    // AI analysis — enrich active findings with risk scores and recommendations
     // --------------------
     const activeFindings = await prisma.finding.findMany({
         where: { scanRunId, resolvedAt: null },
@@ -162,13 +176,20 @@ async function runScan(job) {
 // Worker
 // --------------------
 const worker = new Worker("scan", async (job) => {
+    if (job.name !== "scan.run") {
+        log("unknown job name, skipping", { name: job.name, jobId: job.id });
+        return { ok: false, reason: "UNKNOWN_JOB_NAME" };
+    }
+
     const { scanRunId } = job.data;
     try {
         return await runScan(job);
     } catch (err) {
         try {
             await prisma.scanRun.update({ where: { id: scanRunId }, data: { status: "FAILED", finishedAt: new Date() } });
-        } catch { }
+        } catch (updateErr) {
+            log("scanRun status update failed", { scanRunId, error: updateErr?.message });
+        }
         log("scanRun FAILED", { scanRunId, error: err?.message });
         throw err;
     }
@@ -177,7 +198,11 @@ const worker = new Worker("scan", async (job) => {
 worker.on("completed", (job) => log("completed", { jobId: job.id }));
 worker.on("failed", (job, err) => log("failed", { jobId: job?.id, error: err?.message }));
 
-process.on("SIGINT", async () => {
-    log("shutting down...");
+async function gracefulShutdown(signal) {
+    log(`${signal} received, shutting down...`);
+    try { await worker.close(); } catch { }
     try { await prisma.$disconnect(); } finally { process.exit(0); }
-});
+}
+
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));

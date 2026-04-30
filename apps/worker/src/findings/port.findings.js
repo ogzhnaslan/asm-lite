@@ -1,6 +1,8 @@
 const { upsertFinding, resolveFinding } = require("../utils/finding");
 const { RISKY_PORTS, CRITICAL_PORTS } = require("../config/constants");
+const { forPortExposed, forPortChange } = require("../utils/recommendations");
 const { log } = require("../utils/logger");
+const { FindingTypes } = require("@asm/shared");
 
 async function processPortFindings(prisma, { asset, scanRunId, portsResult, prevPortsSnap }) {
     await _processExposed(prisma, { asset, scanRunId, portsResult });
@@ -14,14 +16,13 @@ async function _processExposed(prisma, { asset, scanRunId, portsResult }) {
     if (riskyPorts.length > 0) {
         const severity = riskyPorts.some((p) => CRITICAL_PORTS.includes(p)) ? "CRITICAL" : "HIGH";
         const aiScore = severity === "CRITICAL" ? 95 : 85;
-        const dataJson = { openPorts: portsResult.openPorts, riskyPorts, results: portsResult.results };
+        const rec = forPortExposed(riskyPorts);
+
         await upsertFinding(prisma, {
             assetId: asset.id, scanRunId, key,
-            type: "PORT_EXPOSED", severity, dataJson, aiScore,
-            aiWhyJson: {
-                reasons: [`Riskli açık portlar tespit edildi: ${riskyPorts.join(", ")}`],
-                signals: { openPorts: portsResult.openPorts, riskyPorts },
-            },
+            type: FindingTypes.PORT_EXPOSED, severity, aiScore,
+            dataJson: { openPorts: portsResult.openPorts, riskyPorts, results: portsResult.results },
+            aiWhyJson: { ...rec, signals: { openPorts: portsResult.openPorts, riskyPorts } },
         });
         log("port exposed upserted", { key, severity, riskyPorts });
     } else {
@@ -46,18 +47,13 @@ async function _processChange(prisma, { asset, scanRunId, portsResult, prevPorts
         newlyOpened.some((p) => CRITICAL_PORTS.includes(p)) ? "CRITICAL" :
         newlyOpened.some((p) => RISKY_PORTS.includes(p)) ? "HIGH" : "MEDIUM";
     const aiScore = severity === "CRITICAL" ? 95 : severity === "HIGH" ? 85 : 70;
-    const dataJson = { prevOpenPorts, currOpenPorts, newlyOpened, newlyClosed };
+    const rec = forPortChange(newlyOpened, newlyClosed);
 
     await upsertFinding(prisma, {
         assetId: asset.id, scanRunId, key,
-        type: "PORT_CHANGE", severity, dataJson, aiScore,
-        aiWhyJson: {
-            reasons: [
-                newlyOpened.length > 0 ? `Yeni açılan portlar: ${newlyOpened.join(", ")}` : "Yeni açılan port yok",
-                newlyClosed.length > 0 ? `Kapanan portlar: ${newlyClosed.join(", ")}` : "Kapanan port yok",
-            ],
-            signals: dataJson,
-        },
+        type: FindingTypes.PORT_CHANGE, severity, aiScore,
+        dataJson: { prevOpenPorts, currOpenPorts, newlyOpened, newlyClosed },
+        aiWhyJson: { ...rec, signals: { prevOpenPorts, currOpenPorts, newlyOpened, newlyClosed } },
     });
     log("port change upserted", { key, severity, newlyOpened, newlyClosed });
 }

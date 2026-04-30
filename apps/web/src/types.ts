@@ -1,6 +1,10 @@
+import type { Severity, FindingType, ScanInterval } from '@asm/shared';
+
+export type { Severity, FindingType, ScanInterval };
+
 export type AssetType = 'DOMAIN' | 'IP';
 export type AssetStatus = 'PENDING' | 'VERIFIED';
-export type FindingSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+export type FindingSeverity = Severity;
 export type ScanStatus = 'RUNNING' | 'DONE' | 'FAILED';
 
 export interface Asset {

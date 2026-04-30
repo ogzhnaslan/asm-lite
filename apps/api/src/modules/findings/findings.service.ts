@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-
-const VALID_SEVERITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+import { SEVERITIES } from '@asm/shared';
 
 interface ListFilters {
   severity?: string;
@@ -25,8 +24,8 @@ export class FindingsService {
 
     if (!asset) throw new NotFoundException('Asset not found');
 
-    if (filters.severity && !VALID_SEVERITIES.includes(filters.severity.toUpperCase())) {
-      throw new BadRequestException(`Geçersiz severity. Seçenekler: ${VALID_SEVERITIES.join(', ')}`);
+    if (filters.severity && !(SEVERITIES as readonly string[]).includes(filters.severity.toUpperCase())) {
+      throw new BadRequestException(`Invalid severity. Valid options: ${SEVERITIES.join(', ')}`);
     }
 
     const where: Record<string, unknown> = { assetId };

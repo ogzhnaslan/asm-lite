@@ -23,10 +23,7 @@ function checkSinglePort(host, port, timeoutMs = 1500) {
 }
 
 async function checkPorts(host, ports = DEFAULT_PORTS) {
-    const results = [];
-    for (const port of ports) {
-        results.push(await checkSinglePort(host, port));
-    }
+    const results = await Promise.all(ports.map((port) => checkSinglePort(host, port)));
     return {
         checkedPorts: ports,
         results,

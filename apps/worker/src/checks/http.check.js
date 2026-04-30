@@ -24,10 +24,10 @@ async function checkHttp(assetValue) {
     }
 
     return {
-        url: second.url,
+        url: `https://${assetValue}`,
         statusCode: null,
         latencyMs: null,
-        error: "HTTP request failed",
+        error: first.error || second.error || "HTTP request failed",
         attempts: [first, second],
     };
 }

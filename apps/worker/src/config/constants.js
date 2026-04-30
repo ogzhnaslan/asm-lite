@@ -2,8 +2,9 @@ const DEFAULT_PORTS = [80, 443, 22, 3389, 8080, 8443, 3000, 5555];
 const RISKY_PORTS = [22, 3389, 8080, 8443, 3000];
 const CRITICAL_PORTS = [22, 3389];
 
-const TLS_EXPIRY_WARN_DAYS = 30;
-const TLS_EXPIRY_CRITICAL_DAYS = 7;
+const TLS_EXPIRY_WARN_DAYS = 30;     // MEDIUM threshold
+const TLS_EXPIRY_HIGH_DAYS = 15;     // HIGH threshold
+const TLS_EXPIRY_CRITICAL_DAYS = 7;  // CRITICAL threshold
 const HTTP_LATENCY_SPIKE_MS = 300;
 
 module.exports = {
@@ -11,6 +12,7 @@ module.exports = {
     RISKY_PORTS,
     CRITICAL_PORTS,
     TLS_EXPIRY_WARN_DAYS,
+    TLS_EXPIRY_HIGH_DAYS,
     TLS_EXPIRY_CRITICAL_DAYS,
     HTTP_LATENCY_SPIKE_MS,
 };

@@ -1,6 +1,8 @@
 const { upsertFinding, resolveFinding } = require("../utils/finding");
 const { HTTP_LATENCY_SPIKE_MS } = require("../config/constants");
+const { forHttpHealth, forHttpChange } = require("../utils/recommendations");
 const { log } = require("../utils/logger");
+const { FindingTypes } = require("@asm/shared");
 
 async function processHttpFindings(prisma, { asset, scanRunId, health, prevHttpSnap }) {
     await _processHealth(prisma, { asset, scanRunId, health });
@@ -15,15 +17,13 @@ async function _processHealth(prisma, { asset, scanRunId, health }) {
     if (isUnhealthy) {
         const severity = health.statusCode === null ? "CRITICAL" : "HIGH";
         const aiScore = health.statusCode === null ? 95 : 85;
+        const rec = forHttpHealth(health.statusCode);
+
         await upsertFinding(prisma, {
             assetId: asset.id, scanRunId, key,
-            type: "HTTP_HEALTH", severity, dataJson: health, aiScore,
-            aiWhyJson: {
-                reasons: health.statusCode === null
-                    ? ["HTTP request failed (timeout/DNS/connection)"]
-                    : [`HTTP status ${health.statusCode}`],
-                signals: health,
-            },
+            type: FindingTypes.HTTP_HEALTH, severity, aiScore,
+            dataJson: health,
+            aiWhyJson: { ...rec, signals: health },
         });
         log("http health upserted", { key, severity, statusCode: health.statusCode });
     } else if (isHealthy) {
@@ -55,18 +55,13 @@ async function _processChange(prisma, { asset, scanRunId, health, prevHttpSnap }
         currStatus >= 500 ? "HIGH" :
         latencySpike ? "MEDIUM" : "LOW";
     const aiScore = severity === "CRITICAL" ? 95 : severity === "HIGH" ? 85 : severity === "MEDIUM" ? 70 : 30;
-    const dataJson = { prevStatus, currStatus, prevLatency, currLatency, statusChanged, latencySpike };
+    const rec = forHttpChange(prevStatus, currStatus, latencySpike, prevLatency, currLatency);
 
     await upsertFinding(prisma, {
         assetId: asset.id, scanRunId, key,
-        type: "HTTP_CHANGE", severity, dataJson, aiScore,
-        aiWhyJson: {
-            reasons: [
-                statusChanged ? `HTTP status changed: ${prevStatus} -> ${currStatus}` : "HTTP status unchanged",
-                latencySpike ? `Latency spike: ${prevLatency}ms -> ${currLatency}ms` : "No latency spike",
-            ],
-            signals: { prev, curr: health },
-        },
+        type: FindingTypes.HTTP_CHANGE, severity, aiScore,
+        dataJson: { prevStatus, currStatus, prevLatency, currLatency, statusChanged, latencySpike },
+        aiWhyJson: { ...rec, signals: { prev, curr: health } },
     });
     log("http change upserted", { key, severity });
 }

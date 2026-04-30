@@ -275,10 +275,10 @@ describe('AssetsService', () => {
       expect(result.instruction).toContain('example.com');
     });
 
-    it('asset bulunamazsa → BadRequestException', async () => {
+    it('asset bulunamazsa → NotFoundException', async () => {
       prismaAsset.findUnique.mockResolvedValue(null);
 
-      await expect(service.requestHttpToken('user-1', 'asset-1')).rejects.toThrow(BadRequestException);
+      await expect(service.requestHttpToken('user-1', 'asset-1')).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -302,10 +302,10 @@ describe('AssetsService', () => {
       await expect(service.requestDnsToken('user-1', 'asset-1')).rejects.toThrow(BadRequestException);
     });
 
-    it('asset bulunamazsa → BadRequestException', async () => {
+    it('asset bulunamazsa → NotFoundException', async () => {
       prismaAsset.findUnique.mockResolvedValue(null);
 
-      await expect(service.requestDnsToken('user-1', 'asset-1')).rejects.toThrow(BadRequestException);
+      await expect(service.requestDnsToken('user-1', 'asset-1')).rejects.toThrow(NotFoundException);
     });
   });
 });

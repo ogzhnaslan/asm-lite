@@ -1,7 +1,14 @@
 import crypto from "crypto";
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
-import { ScanScheduleService, VALID_INTERVALS } from "../modules/scans/scan-schedule.service";
+import { ScanScheduleService } from "../modules/scans/scan-schedule.service";
+import { SCAN_INTERVALS } from "@asm/shared";
 import * as dns from "node:dns/promises";
 
 @Injectable()
@@ -13,12 +20,15 @@ export class AssetsService {
 
   async create(userId: string, body: { type?: "DOMAIN" | "IP"; value: string }) {
     const type = body.type ?? "DOMAIN";
-    const value = (body.value ?? "").trim().toLowerCase();
+    const rawValue = (body.value ?? "").trim();
 
-    if (!value) throw new BadRequestException("value zorunlu");
-    if (type === "DOMAIN" && (value.includes("http://") || value.includes("https://"))) {
-      throw new BadRequestException("Domain girerken http/https yazma. Örn: example.com");
+    if (!rawValue) throw new BadRequestException("value is required");
+
+    if (type === "DOMAIN" && /^https?:\/\//i.test(rawValue)) {
+      throw new BadRequestException("Domain should not include http/https prefix. Example: example.com");
     }
+
+    const value = rawValue.toLowerCase().replace(/\/+$/, "");
 
     if (type === "IP") {
       const octets = value.split(".");
@@ -28,14 +38,14 @@ export class AssetsService {
           const n = parseInt(o, 10);
           return /^\d+$/.test(o) && n >= 0 && n <= 255;
         });
-      if (!validIp) throw new BadRequestException("Geçerli bir IPv4 gir");
+      if (!validIp) throw new BadRequestException("Invalid IPv4 address");
     }
 
     try {
       return await this.prisma.asset.create({ data: { userId, type, value } });
     } catch (e: any) {
       if (e?.code === "P2002") {
-        throw new ConflictException("Bu asset zaten ekli (aynı kullanıcı için tekrar eklenemez).");
+        throw new ConflictException("Asset already exists for this account");
       }
       throw e;
     }
@@ -61,13 +71,13 @@ export class AssetsService {
 
   async get(userId: string, assetId: string) {
     const asset = await this.prisma.asset.findFirst({ where: { id: assetId, userId } });
-    if (!asset) throw new NotFoundException("Asset bulunamadı");
+    if (!asset) throw new NotFoundException("Asset not found");
     return asset;
   }
 
   async remove(userId: string, assetId: string) {
     const asset = await this.prisma.asset.findFirst({ where: { id: assetId, userId } });
-    if (!asset) throw new NotFoundException("Asset bulunamadı");
+    if (!asset) throw new NotFoundException("Asset not found");
 
     await this.schedule.unschedule(assetId);
 
@@ -83,22 +93,22 @@ export class AssetsService {
 
   async setCritical(userId: string, assetId: string, critical: boolean) {
     if (typeof critical !== "boolean") {
-      throw new BadRequestException("critical boolean olmalı");
+      throw new BadRequestException("critical must be a boolean");
     }
     const asset = await this.prisma.asset.findFirst({ where: { id: assetId, userId } });
-    if (!asset) throw new NotFoundException("Asset bulunamadı");
+    if (!asset) throw new NotFoundException("Asset not found");
 
     await this.prisma.asset.update({ where: { id: assetId }, data: { critical } });
     return { ok: true, assetId, critical };
   }
 
   async updateScanInterval(userId: string, assetId: string, interval: string) {
-    if (!VALID_INTERVALS.includes(interval)) {
-      throw new BadRequestException(`Geçersiz interval. Seçenekler: ${VALID_INTERVALS.join(", ")}`);
+    if (!(SCAN_INTERVALS as readonly string[]).includes(interval)) {
+      throw new BadRequestException(`Invalid interval. Valid options: ${SCAN_INTERVALS.join(", ")}`);
     }
 
     const asset = await this.prisma.asset.findFirst({ where: { id: assetId, userId } });
-    if (!asset) throw new NotFoundException("Asset bulunamadı");
+    if (!asset) throw new NotFoundException("Asset not found");
 
     await this.prisma.asset.update({ where: { id: assetId }, data: { scanInterval: interval } });
 
@@ -111,11 +121,11 @@ export class AssetsService {
 
   async devVerify(userId: string, assetId: string) {
     if (process.env.NODE_ENV === "production") {
-      throw new ForbiddenException("Dev verify prodüksiyonda kullanılamaz");
+      throw new ForbiddenException("Dev verify is not available in production");
     }
 
     const asset = await this.prisma.asset.findFirst({ where: { id: assetId, userId } });
-    if (!asset) throw new NotFoundException("Asset bulunamadı");
+    if (!asset) throw new NotFoundException("Asset not found");
 
     await this.prisma.asset.update({ where: { id: assetId }, data: { status: "VERIFIED" } });
     await this.schedule.schedule(assetId, asset.scanInterval);
@@ -126,7 +136,7 @@ export class AssetsService {
   async requestHttpToken(userId: string, assetId: string) {
     const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });
     if (!asset || asset.userId !== userId) {
-      throw new BadRequestException("Asset bulunamadı");
+      throw new NotFoundException("Asset not found");
     }
 
     const token = crypto.randomBytes(16).toString("hex");
@@ -136,18 +146,18 @@ export class AssetsService {
       assetId,
       method: "HTTP_FILE",
       token,
-      instruction: `https://${asset.value}/.well-known/asm-verify.txt dosyasına bu token'ı düz metin olarak koy`,
+      instruction: `Place this token as plain text at https://${asset.value}/.well-known/asm-verify.txt`,
     };
   }
 
   async requestDnsToken(userId: string, assetId: string) {
     const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });
     if (!asset || asset.userId !== userId) {
-      throw new BadRequestException("Asset bulunamadı");
+      throw new NotFoundException("Asset not found");
     }
 
     if (asset.type !== "DOMAIN") {
-      throw new BadRequestException("DNS doğrulama sadece DOMAIN asset'leri için geçerlidir");
+      throw new BadRequestException("DNS verification is only available for DOMAIN assets");
     }
 
     const token = crypto.randomBytes(16).toString("hex");
@@ -162,7 +172,7 @@ export class AssetsService {
       method: "DNS_TXT",
       token,
       dns: { type: "TXT", host, fqdn, value },
-      instruction: `DNS panelinde TXT kaydı ekle: Host/Name="${host}"  Value="${value}" (tam kayıt: ${fqdn})`,
+      instruction: `Add a DNS TXT record: Host/Name="${host}"  Value="${value}" (full record: ${fqdn})`,
     };
   }
 
@@ -172,10 +182,27 @@ export class AssetsService {
       include: { verifications: { orderBy: { createdAt: "desc" }, take: 1 } },
     });
 
-    if (!asset || asset.userId !== userId) throw new BadRequestException("Asset bulunamadı");
+    if (!asset || asset.userId !== userId) throw new NotFoundException("Asset not found");
+
+    // Validate the URL hostname matches the asset to prevent SSRF
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      throw new BadRequestException("Invalid URL format");
+    }
+
+    const hostname = parsedUrl.hostname;
+    if (hostname !== asset.value && hostname !== `www.${asset.value}`) {
+      throw new BadRequestException(`URL hostname must match asset domain: ${asset.value}`);
+    }
+
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      throw new BadRequestException("URL must use http or https protocol");
+    }
 
     const last = asset.verifications[0];
-    if (!last) throw new BadRequestException("Önce request-token çağırmalısın");
+    if (!last) throw new BadRequestException("Request a verification token first");
 
     let res: Response;
     try {
@@ -184,21 +211,20 @@ export class AssetsService {
       res = await fetch(url, { signal: controller.signal });
       clearTimeout(timer);
     } catch {
-      throw new BadRequestException("URL'ye erişilemedi");
+      throw new BadRequestException("Failed to reach the URL");
     }
 
     if (!res.ok) {
-      throw new BadRequestException(`HTTP ${res.status}: Token dosyası okunamadı`);
+      throw new BadRequestException(`HTTP ${res.status}: Failed to read token file`);
     }
 
     const text = await res.text();
     if (!text.includes(last.token)) {
-      throw new BadRequestException("Token dosyada bulunamadı");
+      throw new BadRequestException("Token not found in the response");
     }
 
     await this.prisma.assetVerification.update({ where: { id: last.id }, data: { verifiedAt: new Date() } });
     await this.prisma.asset.update({ where: { id: assetId }, data: { status: "VERIFIED" } });
-
     await this.schedule.schedule(assetId, asset.scanInterval);
 
     return { ok: true, assetId, status: "VERIFIED" };
@@ -208,11 +234,11 @@ export class AssetsService {
     const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });
 
     if (!asset || asset.userId !== userId) {
-      throw new BadRequestException("Asset bulunamadı");
+      throw new NotFoundException("Asset not found");
     }
 
     if (asset.type !== "DOMAIN") {
-      throw new BadRequestException("DNS doğrulama sadece DOMAIN asset'leri için geçerlidir");
+      throw new BadRequestException("DNS verification is only available for DOMAIN assets");
     }
 
     const lastDns = await this.prisma.assetVerification.findFirst({
@@ -222,7 +248,7 @@ export class AssetsService {
     });
 
     if (!lastDns) {
-      throw new BadRequestException("Önce request-dns-token çağırmalısın");
+      throw new BadRequestException("Request a DNS verification token first");
     }
 
     const d = (domain?.trim().toLowerCase() || asset.value).replace(/\.$/, "");
@@ -234,19 +260,18 @@ export class AssetsService {
     try {
       txtRecords = await dns.resolveTxt(fqdn);
     } catch {
-      throw new BadRequestException(`DNS TXT kaydı bulunamadı: ${fqdn}`);
+      throw new BadRequestException(`DNS TXT record not found: ${fqdn}`);
     }
 
     const flattened = txtRecords.map((parts) => parts.join(""));
     const expected = `asm-verify=${lastDns.token}`;
 
     if (!flattened.some((v) => v.includes(expected))) {
-      throw new BadRequestException("Token DNS TXT kaydında bulunamadı");
+      throw new BadRequestException("Token not found in DNS TXT records");
     }
 
     await this.prisma.assetVerification.update({ where: { id: lastDns.id }, data: { verifiedAt: new Date() } });
     await this.prisma.asset.update({ where: { id: assetId }, data: { status: "VERIFIED" } });
-
     await this.schedule.schedule(assetId, asset.scanInterval);
 
     return { ok: true, assetId, status: "VERIFIED", method: "DNS_TXT" };

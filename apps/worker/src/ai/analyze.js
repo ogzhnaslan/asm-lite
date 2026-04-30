@@ -4,6 +4,17 @@ const SYSTEM = `You are a cybersecurity analyst specializing in attack surface m
 You receive a list of security findings for an asset and return a risk assessment for each one.
 Always respond with a valid JSON array only — no markdown, no explanation outside the array.`;
 
+// Module-level singleton — avoids re-instantiating the client on every scan
+let _anthropicClient = null;
+
+function getAnthropicClient() {
+    if (!_anthropicClient) {
+        const Anthropic = require("@anthropic-ai/sdk");
+        _anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    }
+    return _anthropicClient;
+}
+
 function buildPrompt(asset, findings) {
     const list = findings.map((f) => ({
         key: f.key,
@@ -34,19 +45,22 @@ Return a JSON array with one object per finding:
 
 function parseResponse(text) {
     const clean = text.replace(/^```[a-z]*\n?/m, "").replace(/```$/m, "").trim();
-    const results = JSON.parse(clean);
-    return Array.isArray(results) ? results : [];
+    try {
+        const results = JSON.parse(clean);
+        return Array.isArray(results) ? results : [];
+    } catch (err) {
+        log("ai parse error", { error: err?.message, preview: clean.slice(0, 200) });
+        return [];
+    }
 }
 
 async function callAnthropic(asset, findings) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+    if (!process.env.ANTHROPIC_API_KEY) {
         log("ai skip: ANTHROPIC_API_KEY not set");
         return [];
     }
 
-    const Anthropic = require("@anthropic-ai/sdk");
-    const client = new Anthropic({ apiKey });
+    const client = getAnthropicClient();
 
     const msg = await client.messages.create({
         model: process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001",
