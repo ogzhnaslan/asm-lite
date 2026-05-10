@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { PwnedPasswordsService } from './pwned-passwords.service';
 
 jest.mock('bcryptjs', () => ({ hash: jest.fn(), compare: jest.fn() }));
 
@@ -21,16 +22,19 @@ describe('AuthService', () => {
   let service: AuthService;
   let prismaUser: { findUnique: jest.Mock; create: jest.Mock };
   let jwtSign: jest.Mock;
+  let pwnedCheck: jest.Mock;
 
   beforeEach(async () => {
     prismaUser = { findUnique: jest.fn(), create: jest.fn() };
     jwtSign = jest.fn().mockReturnValue('mock.jwt.token');
+    pwnedCheck = jest.fn().mockResolvedValue({ pwned: false, checked: true });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: PrismaService, useValue: { user: prismaUser } },
         { provide: JwtService, useValue: { sign: jwtSign } },
+        { provide: PwnedPasswordsService, useValue: { check: pwnedCheck } },
       ],
     }).compile();
 
@@ -68,6 +72,62 @@ describe('AuthService', () => {
 
       await expect(service.register('test@example.com', 'password')).rejects.toThrow(ConflictException);
       expect(prismaUser.create).not.toHaveBeenCalled();
+    });
+
+    // ─── Pwned Passwords branch'leri ─────────────────────────────────────────
+
+    it('pwned şifre → BadRequestException fırlatır ve user.create çağrılmaz', async () => {
+      pwnedCheck.mockResolvedValue({ pwned: true, checked: true, count: 5 });
+      prismaUser.findUnique.mockResolvedValue(null);
+
+      await expect(service.register('test@example.com', 'password123')).rejects.toThrow(BadRequestException);
+      expect(prismaUser.create).not.toHaveBeenCalled();
+    });
+
+    it('Pwned API hatası + strict mode → BadRequestException fırlatır ve user.create çağrılmaz', async () => {
+      process.env.PWNED_PASSWORD_FAILURE_MODE = 'strict';
+      pwnedCheck.mockResolvedValue({ pwned: false, checked: false, count: 0, error: 'TIMEOUT' });
+      prismaUser.findUnique.mockResolvedValue(null);
+
+      try {
+        await expect(service.register('test@example.com', 'password123')).rejects.toThrow(BadRequestException);
+        expect(prismaUser.create).not.toHaveBeenCalled();
+      } finally {
+        delete process.env.PWNED_PASSWORD_FAILURE_MODE;
+      }
+    });
+
+    it('Pwned API hatası + soft mode → kayıt devam eder, token döner', async () => {
+      process.env.PWNED_PASSWORD_FAILURE_MODE = 'soft';
+      pwnedCheck.mockResolvedValue({ pwned: false, checked: false, count: 0, error: 'TIMEOUT' });
+      prismaUser.findUnique.mockResolvedValue(null);
+      mockHash.mockResolvedValue('hashed_pw');
+      prismaUser.create.mockResolvedValue({ id: 'user-1', email: 'test@example.com', createdAt: new Date() });
+
+      try {
+        const result = await service.register('test@example.com', 'password123');
+        expect(result.user.email).toBe('test@example.com');
+        expect(result.token).toBe('mock.jwt.token');
+        expect(prismaUser.create).toHaveBeenCalled();
+      } finally {
+        delete process.env.PWNED_PASSWORD_FAILURE_MODE;
+      }
+    });
+
+    it('ENABLE_PWNED_PASSWORD_CHECK=false → pwnedCheck çağrılmaz, kayıt devam eder', async () => {
+      process.env.ENABLE_PWNED_PASSWORD_CHECK = 'false';
+      prismaUser.findUnique.mockResolvedValue(null);
+      mockHash.mockResolvedValue('hashed_pw');
+      prismaUser.create.mockResolvedValue({ id: 'user-1', email: 'test@example.com', createdAt: new Date() });
+
+      try {
+        const result = await service.register('test@example.com', 'password123');
+        expect(pwnedCheck).not.toHaveBeenCalled();
+        expect(result.user.email).toBe('test@example.com');
+        expect(result.token).toBe('mock.jwt.token');
+      } finally {
+        delete process.env.ENABLE_PWNED_PASSWORD_CHECK;
+      }
     });
   });
 

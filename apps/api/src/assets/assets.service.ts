@@ -9,6 +9,7 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import { ScanScheduleService } from "../modules/scans/scan-schedule.service";
 import { SCAN_INTERVALS } from "@asm/shared";
+import { AssetStatus } from "@prisma/client";
 import * as dns from "node:dns/promises";
 
 @Injectable()
@@ -30,6 +31,13 @@ export class AssetsService {
 
     const value = rawValue.toLowerCase().replace(/\/+$/, "");
 
+    if (type === "DOMAIN") {
+      const domainRegex = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
+      if (!domainRegex.test(value) || value.length > 253) {
+        throw new BadRequestException("Invalid domain format. Example: example.com");
+      }
+    }
+
     if (type === "IP") {
       const octets = value.split(".");
       const validIp =
@@ -43,8 +51,8 @@ export class AssetsService {
 
     try {
       return await this.prisma.asset.create({ data: { userId, type, value } });
-    } catch (e: any) {
-      if (e?.code === "P2002") {
+    } catch (e: unknown) {
+      if ((e as { code?: string })?.code === "P2002") {
         throw new ConflictException("Asset already exists for this account");
       }
       throw e;
@@ -112,11 +120,65 @@ export class AssetsService {
 
     await this.prisma.asset.update({ where: { id: assetId }, data: { scanInterval: interval } });
 
-    if (asset.status === "VERIFIED") {
+    if (asset.status === AssetStatus.VERIFIED) {
       await this.schedule.schedule(assetId, interval);
     }
 
     return { ok: true, assetId, scanInterval: interval };
+  }
+
+  async getIntelligence(userId: string, assetId: string): Promise<{
+    assetId: string; assetValue: string; assetType: string;
+    dns: unknown; rdap: unknown; geoip: unknown; robots: unknown;
+    phishtank: unknown; reputation: unknown; breach: unknown;
+    lastUpdatedAt: string | null;
+  }> {
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: assetId, userId },
+      select: { id: true, value: true, type: true },
+    });
+    if (!asset) throw new NotFoundException('Asset not found');
+
+    const TYPES = [
+      'DNS_RECORDS',
+      'RDAP_INFO',
+      'GEOIP_INFO',
+      'ROBOTS_TXT',
+      'PHISHTANK_REPUTATION',
+      'MALICIOUS_REPUTATION',
+      'BREACH_EXPOSURE',
+    ] as const;
+
+    const snapshots = await Promise.all(
+      TYPES.map((type) =>
+        this.prisma.scanCheckResult.findFirst({
+          where: { type, scanRun: { assetId: asset.id, status: 'DONE' } },
+          orderBy: { createdAt: 'desc' },
+          select: { dataJson: true, createdAt: true },
+        })
+      )
+    );
+
+    const [dns, rdap, geoip, robots, phishtank, reputation, breach] = snapshots;
+
+    const validDates = snapshots.filter(Boolean).map((s) => s!.createdAt.getTime());
+    const lastUpdatedAt = validDates.length > 0
+      ? new Date(Math.max(...validDates)).toISOString()
+      : null;
+
+    return {
+      assetId: asset.id,
+      assetValue: asset.value,
+      assetType: asset.type,
+      dns: dns?.dataJson ?? null,
+      rdap: rdap?.dataJson ?? null,
+      geoip: geoip?.dataJson ?? null,
+      robots: robots?.dataJson ?? null,
+      phishtank: phishtank?.dataJson ?? null,
+      reputation: reputation?.dataJson ?? null,
+      breach: breach?.dataJson ?? null,
+      lastUpdatedAt,
+    };
   }
 
   async devVerify(userId: string, assetId: string) {
@@ -254,7 +316,10 @@ export class AssetsService {
     const d = (domain?.trim().toLowerCase() || asset.value).replace(/\.$/, "");
     const fqdn = `_asm-verify.${d}`;
 
-    dns.setServers(["162.159.24.201", "162.159.25.42"]);
+    const dnsServers = process.env.DNS_SERVERS
+      ? process.env.DNS_SERVERS.split(',').map(s => s.trim())
+      : ['162.159.24.201', '162.159.25.42'];
+    dns.setServers(dnsServers);
 
     let txtRecords: string[][];
     try {
