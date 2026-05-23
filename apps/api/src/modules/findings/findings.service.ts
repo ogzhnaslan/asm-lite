@@ -14,7 +14,7 @@ interface ListFilters {
 export class FindingsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(userId: string, assetId: string, filters: ListFilters = {}) {
+  async list(userId: string, assetId: string, filters: ListFilters = {}): Promise<{ items: unknown[]; total: number; page: number; limit: number }> {
     if (!assetId) throw new BadRequestException('assetId is required');
 
     const asset = await this.prisma.asset.findFirst({
@@ -53,7 +53,7 @@ export class FindingsService {
     return { items, total, page, limit };
   }
 
-  async ack(userId: string, id: string) {
+  async ack(userId: string, id: string): Promise<unknown> {
     if (!id) throw new BadRequestException('id is required');
 
     const finding = await this.prisma.finding.findFirst({

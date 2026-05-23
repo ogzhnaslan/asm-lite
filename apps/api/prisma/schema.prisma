@@ -5,7 +5,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-
 }
 
 enum AssetType {
@@ -25,13 +24,44 @@ enum FindingSeverity {
   CRITICAL
 }
 
+enum ScanRunStatus {
+  RUNNING
+  DONE
+  FAILED
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
   password  String
   createdAt DateTime @default(now())
 
-  assets    Asset[]
+  assets              Asset[]
+  passiveLookupRuns   PassiveLookupRun[]
+}
+
+model PassiveLookupRun {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+
+  target     String
+  targetType String   // "DOMAIN" | "IP"
+  source     String   @default("OTX")
+  status     String   @default("DONE") // "DONE" | "ERROR" | "SKIPPED"
+
+  otxJson            Json?
+  aiSummary          String?
+  aiRecommendations  Json?  // String[]
+
+  error      String?
+
+  checkedAt  DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, checkedAt])
+  @@index([target])
 }
 
 model Asset {
@@ -49,8 +79,10 @@ model Asset {
   verifications AssetVerification[]
   scanRuns       ScanRun[]
   findings       Finding[]
+  sqliTargets    SqliTarget[]
 
   @@index([userId])
+  @@index([status])
   @@unique([type, value, userId])
 }
 
@@ -72,16 +104,15 @@ model ScanRun {
   assetId    String
   asset      Asset    @relation(fields: [assetId], references: [id])
 
-  startedAt  DateTime @default(now())
+  startedAt  DateTime      @default(now())
   finishedAt DateTime?
-  status     String   @default("RUNNING") // RUNNING|DONE|FAILED
+  status     ScanRunStatus @default(RUNNING)
 
-  // ✅ Yeni: taramanın ham sonuç snapshot'ları (HTTP/TLS/PORTS vb.)
   checkResults ScanCheckResult[]
-
-  findings   Finding[]
+  findings     Finding[]
 
   @@index([assetId])
+  @@index([assetId, startedAt])
 }
 
 model ScanCheckResult {
@@ -107,8 +138,8 @@ model Finding {
   scanRunId String
   scanRun   ScanRun  @relation(fields: [scanRunId], references: [id])
 
-  type       String          // HTTP_HEALTH / TLS_EXPIRY / PORT_EXPOSED / DNS_CHANGE ...
-  key        String          // STABLE KEY (örn: HTTP_HEALTH:example.com)
+  type       String
+  key        String
   severity   FindingSeverity @default(LOW)
 
   dataJson   Json
@@ -120,9 +151,28 @@ model Finding {
   createdAt  DateTime @default(now())
   lastSeenAt DateTime @default(now())
   resolvedAt DateTime?
-  
+
   @@index([assetId])
   @@index([scanRunId])
   @@index([aiScore])
+  @@index([type])
   @@unique([assetId, key])
+}
+
+model SqliTarget {
+  id        String   @id @default(cuid())
+  assetId   String
+  asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  method      String   // MVP: sadece "GET"
+  path        String   // örn: "/product" veya "/search"
+  paramsJson  Json     // örn: { "id": "1" } veya { "q": "test" }
+  injectParam String   // paramsJson içindeki bir key — örn: "id" veya "q"
+  enabled     Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([assetId])
+  @@index([assetId, enabled])
 }

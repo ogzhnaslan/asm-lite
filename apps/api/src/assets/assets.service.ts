@@ -17,7 +17,7 @@ export class AssetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly schedule: ScanScheduleService,
-  ) {}
+  ) { }
 
   async create(userId: string, body: { type?: "DOMAIN" | "IP"; value: string }) {
     const type = body.type ?? "DOMAIN";
@@ -130,36 +130,37 @@ export class AssetsService {
   async getIntelligence(userId: string, assetId: string): Promise<{
     assetId: string; assetValue: string; assetType: string;
     dns: unknown; rdap: unknown; geoip: unknown; robots: unknown;
-    phishtank: unknown; reputation: unknown; breach: unknown;
+    phishtank: unknown; reputation: unknown; breach: unknown; otx: unknown;
     lastUpdatedAt: string | null;
   }> {
     const asset = await this.prisma.asset.findFirst({
       where: { id: assetId, userId },
       select: { id: true, value: true, type: true },
     });
-    if (!asset) throw new NotFoundException('Asset not found');
+    if (!asset) throw new NotFoundException("Asset not found");
 
     const TYPES = [
-      'DNS_RECORDS',
-      'RDAP_INFO',
-      'GEOIP_INFO',
-      'ROBOTS_TXT',
-      'PHISHTANK_REPUTATION',
-      'MALICIOUS_REPUTATION',
-      'BREACH_EXPOSURE',
+      "DNS_RECORDS",
+      "RDAP_INFO",
+      "GEOIP_INFO",
+      "ROBOTS_TXT",
+      "PHISHTANK_REPUTATION",
+      "MALICIOUS_REPUTATION",
+      "BREACH_EXPOSURE",
+      "OTX_INTELLIGENCE",
     ] as const;
 
     const snapshots = await Promise.all(
       TYPES.map((type) =>
         this.prisma.scanCheckResult.findFirst({
-          where: { type, scanRun: { assetId: asset.id, status: 'DONE' } },
-          orderBy: { createdAt: 'desc' },
+          where: { type, scanRun: { assetId: asset.id, status: "DONE" } },
+          orderBy: { createdAt: "desc" },
           select: { dataJson: true, createdAt: true },
         })
       )
     );
 
-    const [dns, rdap, geoip, robots, phishtank, reputation, breach] = snapshots;
+    const [dns, rdap, geoip, robots, phishtank, reputation, breach, otx] = snapshots;
 
     const validDates = snapshots.filter(Boolean).map((s) => s!.createdAt.getTime());
     const lastUpdatedAt = validDates.length > 0
@@ -177,6 +178,7 @@ export class AssetsService {
       phishtank: phishtank?.dataJson ?? null,
       reputation: reputation?.dataJson ?? null,
       breach: breach?.dataJson ?? null,
+      otx: otx?.dataJson ?? null,
       lastUpdatedAt,
     };
   }
@@ -201,8 +203,20 @@ export class AssetsService {
       throw new NotFoundException("Asset not found");
     }
 
-    const token = crypto.randomBytes(16).toString("hex");
-    await this.prisma.assetVerification.create({ data: { assetId, method: "HTTP_FILE", token } });
+    if (asset.status === AssetStatus.VERIFIED) {
+      throw new BadRequestException("Asset is already verified");
+    }
+
+    const existing = await this.prisma.assetVerification.findFirst({
+      where: { assetId, method: "HTTP_FILE", verifiedAt: null },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, token: true },
+    });
+
+    const token = existing?.token ?? crypto.randomBytes(16).toString("hex");
+    if (!existing) {
+      await this.prisma.assetVerification.create({ data: { assetId, method: "HTTP_FILE", token } });
+    }
 
     return {
       assetId,
@@ -222,8 +236,20 @@ export class AssetsService {
       throw new BadRequestException("DNS verification is only available for DOMAIN assets");
     }
 
-    const token = crypto.randomBytes(16).toString("hex");
-    await this.prisma.assetVerification.create({ data: { assetId, method: "DNS_TXT", token } });
+    if (asset.status === AssetStatus.VERIFIED) {
+      throw new BadRequestException("Asset is already verified");
+    }
+
+    const existing = await this.prisma.assetVerification.findFirst({
+      where: { assetId, method: "DNS_TXT", verifiedAt: null },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, token: true },
+    });
+
+    const token = existing?.token ?? crypto.randomBytes(16).toString("hex");
+    if (!existing) {
+      await this.prisma.assetVerification.create({ data: { assetId, method: "DNS_TXT", token } });
+    }
 
     const host = "_asm-verify";
     const fqdn = `${host}.${asset.value}`;
@@ -246,7 +272,6 @@ export class AssetsService {
 
     if (!asset || asset.userId !== userId) throw new NotFoundException("Asset not found");
 
-    // Validate the URL hostname matches the asset to prevent SSRF
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(url);
@@ -267,13 +292,14 @@ export class AssetsService {
     if (!last) throw new BadRequestException("Request a verification token first");
 
     let res: Response;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 10_000);
       res = await fetch(url, { signal: controller.signal });
-      clearTimeout(timer);
     } catch {
       throw new BadRequestException("Failed to reach the URL");
+    } finally {
+      clearTimeout(timer);
     }
 
     if (!res.ok) {
@@ -304,7 +330,7 @@ export class AssetsService {
     }
 
     const lastDns = await this.prisma.assetVerification.findFirst({
-      where: { assetId, method: "DNS_TXT" },
+      where: { assetId, method: "DNS_TXT", verifiedAt: null },
       orderBy: { createdAt: "desc" },
       select: { id: true, token: true },
     });
@@ -315,23 +341,91 @@ export class AssetsService {
 
     const d = (domain?.trim().toLowerCase() || asset.value).replace(/\.$/, "");
     const fqdn = `_asm-verify.${d}`;
+    const expected = `asm-verify=${lastDns.token}`;
 
-    const dnsServers = process.env.DNS_SERVERS
-      ? process.env.DNS_SERVERS.split(',').map(s => s.trim())
-      : ['162.159.24.201', '162.159.25.42'];
-    dns.setServers(dnsServers);
+    const normalizeTxtRecords = (records: string[][]): string[] => {
+      return records
+        .map((parts) => parts.join("").trim())
+        .filter(Boolean);
+    };
 
-    let txtRecords: string[][];
+    const resolveTxtWithResolver = async (servers: string[] | null): Promise<string[]> => {
+      if (servers && servers.length > 0) {
+        const resolver = new dns.Resolver();
+        resolver.setServers(servers);
+
+        const records = await resolver.resolveTxt(fqdn);
+        return normalizeTxtRecords(records);
+      }
+
+      const records = await dns.resolveTxt(fqdn);
+      return normalizeTxtRecords(records);
+    };
+
+    const configuredServers = process.env.DNS_SERVERS
+      ? process.env.DNS_SERVERS
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+      : [];
+
+    const fallbackServers = ["1.1.1.1", "8.8.8.8"];
+
+    let flattened: string[] = [];
+    let defaultResolverError: unknown = null;
+    let configuredResolverError: unknown = null;
+    let fallbackResolverError: unknown = null;
+
     try {
-      txtRecords = await dns.resolveTxt(fqdn);
-    } catch {
+      flattened = await resolveTxtWithResolver(null);
+    } catch (err) {
+      defaultResolverError = err;
+
+      if (configuredServers.length > 0) {
+        try {
+          flattened = await resolveTxtWithResolver(configuredServers);
+        } catch (configuredErr) {
+          configuredResolverError = configuredErr;
+        }
+      }
+
+      if (flattened.length === 0) {
+        try {
+          flattened = await resolveTxtWithResolver(fallbackServers);
+        } catch (fallbackErr) {
+          fallbackResolverError = fallbackErr;
+        }
+      }
+    }
+
+    if (flattened.length === 0) {
+      console.log("[assets] DNS TXT resolve failed", {
+        fqdn,
+        expected,
+        defaultResolverError:
+          defaultResolverError instanceof Error
+            ? defaultResolverError.message
+            : String(defaultResolverError),
+        configuredResolverError:
+          configuredResolverError instanceof Error
+            ? configuredResolverError.message
+            : String(configuredResolverError),
+        fallbackResolverError:
+          fallbackResolverError instanceof Error
+            ? fallbackResolverError.message
+            : String(fallbackResolverError),
+      });
+
       throw new BadRequestException(`DNS TXT record not found: ${fqdn}`);
     }
 
-    const flattened = txtRecords.map((parts) => parts.join(""));
-    const expected = `asm-verify=${lastDns.token}`;
+    if (!flattened.includes(expected)) {
+      console.log("[assets] DNS TXT token mismatch", {
+        fqdn,
+        expected,
+        resolvedValues: flattened,
+      });
 
-    if (!flattened.some((v) => v.includes(expected))) {
       throw new BadRequestException("Token not found in DNS TXT records");
     }
 

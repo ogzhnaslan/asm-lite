@@ -3,7 +3,13 @@
   "private": true,
   "scripts": {
     "dev:api": "pnpm --filter api start:dev",
-    "dev:worker": "pnpm --filter worker start",
+    "dev:worker": "pnpm --filter worker dev",
     "dev:web": "pnpm --filter @asm/web dev"
+  },
+  "pnpm": {
+    "overrides": {
+      "@types/react": "^19",
+      "@types/react-dom": "^19"
+    }
   }
 }

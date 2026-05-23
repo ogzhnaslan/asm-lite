@@ -40,18 +40,40 @@ describe('ScanScheduleService', () => {
         { assetId: 'asset-1' },
         expect.objectContaining({
           repeat: { every: 24 * 60 * 60 * 1000 },
-          jobId: 'schedule:asset-1',
+          jobId: 'scan:schedule:asset-1',
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 2000 },
         }),
       );
     });
 
     it('mevcut job varsa önce kaldırılır', async () => {
-      queueGetRepeatableJobs.mockResolvedValue([{ id: 'schedule:asset-1', key: 'old-key' }]);
+      queueGetRepeatableJobs.mockResolvedValue([{ id: 'scan:schedule:asset-1', key: 'old-key' }]);
 
       await service.schedule('asset-1', '1h');
 
       expect(queueRemoveRepeatableByKey).toHaveBeenCalledWith('old-key');
       expect(queueAdd).toHaveBeenCalled();
+    });
+
+    it('interval ms doğru hesaplanır', async () => {
+      await service.schedule('asset-2', '6h');
+
+      expect(queueAdd).toHaveBeenCalledWith(
+        'scan.run',
+        { assetId: 'asset-2' },
+        expect.objectContaining({ repeat: { every: 6 * 60 * 60 * 1000 } }),
+      );
+    });
+
+    it('bilinmeyen interval 24h olarak varsayılan alınır', async () => {
+      await service.schedule('asset-3', 'invalid');
+
+      expect(queueAdd).toHaveBeenCalledWith(
+        'scan.run',
+        { assetId: 'asset-3' },
+        expect.objectContaining({ repeat: { every: 24 * 60 * 60 * 1000 } }),
+      );
     });
   });
 
@@ -65,11 +87,42 @@ describe('ScanScheduleService', () => {
     });
 
     it('job varsa kaldırılır', async () => {
-      queueGetRepeatableJobs.mockResolvedValue([{ id: 'schedule:asset-1', key: 'key-123' }]);
+      queueGetRepeatableJobs.mockResolvedValue([{ id: 'scan:schedule:asset-1', key: 'key-123' }]);
 
       await service.unschedule('asset-1');
 
       expect(queueRemoveRepeatableByKey).toHaveBeenCalledWith('key-123');
+    });
+
+    it('aynı asset için duplicate job varsa hepsi kaldırılır', async () => {
+      queueGetRepeatableJobs.mockResolvedValue([
+        { id: 'scan:schedule:asset-1', key: 'key-a' },
+        { id: 'scan:schedule:asset-1', key: 'key-b' },
+      ]);
+
+      await service.unschedule('asset-1');
+
+      expect(queueRemoveRepeatableByKey).toHaveBeenCalledTimes(2);
+      expect(queueRemoveRepeatableByKey).toHaveBeenCalledWith('key-a');
+      expect(queueRemoveRepeatableByKey).toHaveBeenCalledWith('key-b');
+    });
+
+    it('başka asset jobları etkilenmez', async () => {
+      queueGetRepeatableJobs.mockResolvedValue([
+        { id: 'scan:schedule:asset-1', key: 'key-1' },
+        { id: 'scan:schedule:asset-2', key: 'key-2' },
+      ]);
+
+      await service.unschedule('asset-1');
+
+      expect(queueRemoveRepeatableByKey).toHaveBeenCalledTimes(1);
+      expect(queueRemoveRepeatableByKey).toHaveBeenCalledWith('key-1');
+    });
+  });
+
+  describe('scheduledJobId', () => {
+    it('doğru format döner', () => {
+      expect(service.scheduledJobId('asset-abc')).toBe('scan:schedule:asset-abc');
     });
   });
 });

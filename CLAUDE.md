@@ -1,7 +1,13 @@
 # ASM — Attack Surface Monitoring
 
 > **Bu dosya projeyi anlamak için birincil kaynak.** Her değişiklik sonrası güncel tutulmalı.
-> Son güncelleme: 2026-05-09 — Backend Intelligence Endpoint (Adım 12)
+> Son güncelleme: 2026-05-22 — Sprint 1B: TLS protokol/cipher ve chain validation raporlanabilirliği. **`TlsCheckResult` interface'ine 4 opsiyonel alan eklendi** (`protocol`, `cipher: { name, standardName?, version?, bits? }`, `authorized`, `authorizationError`); `secureConnect` event'i içinde `socket.getProtocol()`, `socket.getCipher()`, `socket.authorized`, `socket.authorizationError` okunup string/code'a çevriliyor. `rejectUnauthorized: false` aynı kaldı — chain validation hatası varsa bağlantı yine kurulur, hata `authorizationError` alanında raporlanır, scan **patlamaz**. `TLS_INFO` snapshot otomatik genişledi; `_processExpiry` `TLS_EXPIRING` finding dataJson'una bu 4 alanı **opsiyonel** olarak ekledi (eski snapshot'larda yoksa alanlar dataJson'a hiç yazılmaz — geriye uyumlu). Frontend: **yeni `TlsFindingDetails.tsx`** component'i (PortFindingDetails pattern'i) — TLS_CHECK için hata kartı, TLS_EXPIRING için sertifika+protokol/cipher+chain validation panelleri, TLS_CHANGE için önceki vs mevcut karşılaştırma. AssetDetailPage'e koşullu render + FindingCard kapalı görünüm için kısa özet satırı eklendi. **Severity, aiScore, finding üretme mantığı, recommendations.ts, findingDisplay.ts, FINDING_META, shared package, Prisma schema, API dokunulmadı.** Yeni finding tipi (TLS_WEAK_PROTOCOL / TLS_CHAIN_INVALID) **eklenmedi** — Sprint 1C'ye bırakıldı. **Worker testleri: 403/403 PASS (önceki 400, +3 yeni TLS test). Sprint 1A regresyon: 48/48 PASS. Web build: ✓.**
+> Son güncelleme: 2026-05-22 — Stale Test Update: PhishTank ve Reputation spec dosyaları mevcut business logic'e uyumlu hale getirildi. Worker runtime/business logic değişmedi. **Full worker suite: 400/400 PASS (önceki 390/411, 21 fail). Sprint 1A regresyon: 48/48 PASS.** Değişiklikler: (1) `phishtank.check.spec.ts` — "DISABLED only on env=false/0/no" + "undefined/credentials yok → default public feed kullanılır" senaryolarına güncellendi; eski "undefined → DISABLED" ve "credentials yok → NO_CREDENTIALS" stale beklentileri kaldırıldı; result shape testi explicit `ENABLE_PHISHTANK=false` ile yeniden yazıldı. (2) `reputation.check.spec.ts` — `IP asset — AbuseIPDB` describe (11 test) ve `AbuseIPDB category normalization` describe (6 test) tamamen kaldırıldı (AbuseIPDB kod tarafında zaten silinmiş); yerine 4 testlik `IP asset — URLhaus-only mode` describe eklendi (skipped=`IP_NOT_SUPPORTED_BY_URLHAUS_ONLY_MODE`, fetch çağrılmaz, providers=[], assetType/Value korunur); URLhaus `Auth-Key` header testleri tek "Auth-Key gönderilmez + Content-Type/User-Agent doğrula" testine konsolide edildi (kod URLHAUS_API_KEY okumuyor); URLhaus HTTP 401 testi `URLHAUS_KEY_REQUIRED` → `HTTP_401` olarak güncellendi; anlamsız ABUSEIPDB_API_KEY result-shape testi ve kullanılmayan `ABUSE_KEY`/`abuseIPDBResponse` helper'ları temizlendi. Net: -11 fail, +0 fail, toplam test 411 → 400 (stale silinen 14 test 6 yeni meaningful testle dengelenmedi — kullanıcı onayıyla FAIL=0 öncelikli, test sayısı değil).
+> Son güncelleme: 2026-05-22 — Worker test izolasyonu: **`apps/worker/jest.setup.ts`** eklendi (Jest `setupFiles` ile bağlandı). Geliştirme makinesindeki `apps/worker/.env`'de set olan dış servis env'leri (ENABLE_PHISHTANK, PHISHTANK_FEED_URL/API_KEY, ENABLE_REPUTATION, ABUSEIPDB_API_KEY, URLHAUS_API_KEY, OTX_API_KEY, ENABLE_BREACH, HIBP_API_KEY, LEAKCHECK_API_KEY, BREACH_PROVIDER, ENABLE_PWNED_PASSWORD_CHECK) test sürecinde sıfırlanır; run-scan default 12-check senaryosu için `ENABLE_OTX_IN_VERIFIED_SCANS='true'` set edilir. Production/dev runtime davranışı değişmedi — `dotenv.config` worker.ts boot anında çalışmaya devam ediyor, jest setup yalnızca `pnpm test` sırasında etkin. Spec dosyalarına ve runtime'a dokunulmadı. Full suite 411 testten **390 PASS, 21 FAIL** (önceki 388/23). Kalan 21 fail business logic ile uyumsuz stale testler: `phishtank.check.spec.ts` 3 (kod public-feed-by-default davranışına geçti, test DISABLED bekliyor), `reputation.check.spec.ts` 18 (kod AbuseIPDB'yi tamamen kaldırıp URLhaus-only moda geçti, test hâlâ AbuseIPDB yolunu test ediyor). Bu testler env pollution değil — ayrı bir "stale test update" sprintinde ele alınmalı.
+> Son güncelleme: 2026-05-22 — Sprint 1A+ port bulgu render iyileştirmesi: PORT_EXPOSED ve PORT_CHANGE bulguları için frontend'de **yapısal render** eklendi. Yeni dosyalar: `apps/web/src/utils/portCatalog.ts` (30 port servis/kategori/risk mapping, frontend-only) ve `apps/web/src/components/findings/PortFindingDetails.tsx` (Kritik/Riskli/Normal açık port kartları, tarama özeti [taranan/açık/kapalı/timeout], önceki vs mevcut karşılaştırma, Türkçe risk yorumu). FindingCard kapalı görünümünde `finding.key` altına kısa özet eklendi (örn. "3 açık riskli port, 1 kritik" / "Yeni açılan: 3000, Kapanan: 8080"). `findingDisplay.ts` PORT_EXPOSED ve PORT_CHANGE fallback metinleri "tek başına kesin zafiyet değildir" tonuyla genişletildi. **Backend dokunulmadı** — PORTS snapshot, PORT_EXPOSED/PORT_CHANGE dataJson shape'leri ve worker constants.ts aynı. Web build başarılı.
+> Son güncelleme: 2026-05-22 — Sprint 1A tarama doğruluğu iyileştirmeleri: **DEFAULT_PORTS 8→30 porta genişletildi** (FTP/Telnet/SMTP/POP3/IMAP/SMB/DB/cache/search/dev portları eklendi); `CRITICAL_PORTS` [22, 23, 445, 3389] olarak güncellendi (Telnet + SMB CRITICAL); `RISKY_PORTS` DB/cache/search/dev portlarını kapsayacak şekilde genişletildi; **`PORT_SCAN_TIMEOUT_MS` env desteği eklendi** (default 3000, boş/NaN/≤0 → 3000 fallback); **checkHttp `User-Agent: ASM-Scanner/1.0` header'ı ekledi** (diğer check'lerle tutarlı). PortsCheckResult/HttpCheckResult shape'leri, run-scan akışı, snapshot tipleri, finding processor'lar, Prisma schema, frontend **dokunulmadı**. Etkilenen testler 48/48 geçti (port.findings 12, http.findings 5, run-scan 31).
+> Son güncelleme: 2026-05-19 — PhishTank feed entegrasyonu: gerçek feed URL desteği, 1 saatlik memory cache, hata kodları güncellendi (PHISHTANK_RATE_LIMITED/FEED_FAILED/PARSE_ERROR/UNSUPPORTED_FEED_FORMAT), matchedUrls max 20, provider='phishtank-feed', User-Agent güncellendi, PhishTankMatchedUrl tipine detailUrl/verifiedAt/target eklendi, frontend kartına provider/no-match mesajı/URL detayları eklendi — DB/migration/API shape/scan orchestration dokunulmadı, 49 test geçti
+> — Passive Lookup AI Raporu + Chat Yeniden Tasarım: HistoryDetailModal max-w-4xl, "AI Tehdit İstihbaratı Raporu" başlığı, meta badge strip, OTX kartı (sol) + AiReportCard (sağ) side-by-side layout, 6-bölümlü Türkçe rapor (A-F: Genel Değerlendirme, OTX Özeti, Passive DNS, Risk, Aksiyonlar, Rapor Cümlesi), yeniden tasarlanan AI Chat kartı + 6 hazır soru, OTX_CHAT_SYSTEM genişletildi (4-5 cümle min) — worker/Scan/Asset/Finding dokunulmadı, build PASS (api + web)
 
 ---
 
@@ -158,6 +164,9 @@ REDIS_HOST=localhost
 REDIS_PORT=6380
 REDIS_PASSWORD=
 
+# Port scan TCP connect timeout per port (ms); boş/NaN/≤0 → 3000 fallback
+PORT_SCAN_TIMEOUT_MS=3000
+
 # AI provider: 'anthropic' veya 'ollama'
 AI_PROVIDER=ollama
 OLLAMA_HOST=http://localhost:11434
@@ -179,8 +188,12 @@ VITE_API_URL=http://localhost:3000
 ### Prisma Komutları
 
 ```bash
-# Yeni migration oluştur
+# Yeni migration oluştur (veya schema sync için db push)
 cd apps/api && pnpm prisma migrate dev --name <migration-adi>
+# NOT: pnpm + Prisma tip sync — generate sonrası pnpm store'daki .prisma/client'ı da güncelle:
+# cp apps/api/node_modules/.prisma/client/index.d.ts node_modules/.pnpm/@prisma+client@7.4.1_.../node_modules/.prisma/client/index.d.ts
+# (build hataları için gerekli — tek seferlik işlem, pnpm install sonrası otomatik)
+# Yeni migration oluştur
 
 # Production migration uygula
 cd apps/api && pnpm prisma migrate deploy
@@ -205,8 +218,8 @@ Tüm app'ler arası paylaşılan TypeScript tipleri ve sabitler. **Değişiklik 
 | `asset-types.ts` | `ASSET_TYPES`, `AssetStatus` |
 | `finding-types.ts` | `FindingTypes` (8 tip) |
 | `job-types.ts` | `ScanJobPayload`, `ScanJobResult` |
-| `scan-check-types.ts` | `SCAN_CHECK_TYPES` (`PORTS`, `TLS_INFO`, `HTTP_HEALTH`, `SECURITY_HEADERS`, `DNS_RECORDS`, `RDAP_INFO`, `GEOIP_INFO`, `ROBOTS_TXT`, `PHISHTANK_REPUTATION`, `MALICIOUS_REPUTATION`, `BREACH_EXPOSURE`), `SCAN_STATUS` |
-| `finding-types.ts` | `FindingTypes` (25 tip — port×2, tls×3, http×2, security_header×1, dns×8, whois×2, geoip×2, robots×2, phishing×1, reputation×1, breach×1) |
+| `scan-check-types.ts` | `SCAN_CHECK_TYPES` (`PORTS`, `TLS_INFO`, `HTTP_HEALTH`, `SECURITY_HEADERS`, `DNS_RECORDS`, `RDAP_INFO`, `GEOIP_INFO`, `ROBOTS_TXT`, `PHISHTANK_REPUTATION`, `MALICIOUS_REPUTATION`, `BREACH_EXPOSURE`, `OTX_INTELLIGENCE`), `SCAN_STATUS` |
+| `finding-types.ts` | `FindingTypes` (27 tip — port×2, tls×3, http×2, security_header×1, dns×8, whois×2, geoip×2, robots×2, phishing×1, reputation×1, breach×1, otx×2) |
 | `scan-intervals.ts` | `SCAN_INTERVALS` (`1h`, `6h`, `24h`, `7d`) |
 | `severities.ts` | `SEVERITIES` (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) |
 
@@ -265,7 +278,7 @@ Job alındı (ScanJobPayload: assetId, scanRunId?)
   │   checkPorts / checkTls / checkHttp                     │
   │   checkSecurityHeaders / checkDnsRecords / checkRdap    │
   │   checkGeoIp / checkRobotsTxt / checkPhishTank          │
-  │   checkReputation / checkBreachExposure                 │
+  │   checkReputation / checkBreachExposure / checkOtx      │
   │   → Crash durumunda fallback result döner, scan devam   │
   │                                                         │
   ├─ Snapshot'ları kaydet (Promise.allSettled)  ◄───────────┘
@@ -307,10 +320,13 @@ Job alındı (ScanJobPayload: assetId, scanRunId?)
 #### Check'ler
 
 **checkPorts** (`checks/ports.check.ts`)
-- Varsayılan portlar: `80, 443, 22, 3389, 8080, 8443, 3000, 5555`
-- Paralel TCP socket bağlantısı, 1.5s timeout
-- Riskli portlar: `22, 3389, 8080, 8443, 3000, 5555`
-- Kritik portlar: `22 (SSH), 3389 (RDP)`
+- Varsayılan portlar (30 — web/remote/mail/DNS/DB/cache/search/dev):
+  `21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 465, 587, 993, 995, 1433, 3000, 3306, 3389, 5432, 5555, 5900, 6379, 8000, 8080, 8443, 8888, 9000, 9200, 11211, 27017`
+- Paralel TCP socket bağlantısı; timeout `PORT_SCAN_TIMEOUT_MS` env'den okunur (default 3000ms; boş/NaN/≤0 → fallback 3000)
+- Kritik portlar (`CRITICAL_PORTS`): `22 (SSH), 23 (Telnet), 445 (SMB), 3389 (RDP)` — plaintext shell / remote desktop / SMB
+- Riskli portlar (`RISKY_PORTS`, finding üretir): kritik portlar + `21 (FTP), 25 (SMTP), 110 (POP3), 143 (IMAP), 587 (SMTP submission), 1433 (MSSQL), 3000, 3306 (MySQL), 5432 (PostgreSQL), 5555, 5900 (VNC), 6379 (Redis), 8000, 8080, 8443, 8888, 9000, 9200 (Elasticsearch), 11211 (Memcached), 27017 (MongoDB)`
+- Risksiz (finding üretmez): `80, 443, 53, 465, 993, 995` — meşru genel servisler
+- Result shape değişmedi: `{ checkedPorts, results, openPorts, error? }`
 
 **checkTls** (`checks/tls.check.ts`)
 - Host:443'e TLS handshake, `rejectUnauthorized: false`
@@ -321,7 +337,8 @@ Job alındı (ScanJobPayload: assetId, scanRunId?)
 **checkHttp** (`checks/http.check.ts`)
 - Önce HTTPS dener, başarısız olursa HTTP'ye döner
 - 5s timeout, latency ölçümü
-- Dönüş: `{statusCode, latencyMs, error, finalUrl}`
+- `User-Agent: ASM-Scanner/1.0` header'ı gönderir (Cloudflare/WAF arkasındaki Node default UA bloklarını engellemek için, diğer check'lerle tutarlı)
+- Dönüş: `{url, statusCode, latencyMs, error?, attempts?}`
 - Latency spike eşiği: +300ms artış
 
 **checkRobotsTxt** (`checks/robots.check.ts`)
@@ -337,12 +354,16 @@ Job alındı (ScanJobPayload: assetId, scanRunId?)
 **checkPhishTank** (`checks/phishtank.check.ts`)
 - Sadece DOMAIN tipli asset'lerde çalışır
 - `ENABLE_PHISHTANK=true` olmadan → `skipped: true` döner, scan patlamamaz
-- `PHISHTANK_FEED_URL` varsa direkt kullanılır; yoksa `PHISHTANK_API_KEY` ile feed URL otomatik oluşturulur (`https://data.phishtank.com/data/<key>/online-valid.json`)
+- `PHISHTANK_FEED_URL` varsa direkt kullanılır (API key gerekmez); yoksa `PHISHTANK_API_KEY` ile feed URL otomatik oluşturulur (`https://data.phishtank.com/data/<key>/online-valid.json`)
 - İkisi de yoksa → `skipped: true, skipReason: 'NO_CREDENTIALS'`
+- **Feed cache:** 1 saat TTL, module-level (`cachedFeed`, `cachedAt`); aynı işlemde tekrar tekrar indirmez
+- **User-Agent:** `ASM-Platform/1.0 passive-phishing-feed`
 - 15s timeout; erişilemezse `error` alanıyla dolu, `isListed: false` döner — scan patlamamaz
+- Hata kodları: `PHISHTANK_RATE_LIMITED` (429), `PHISHTANK_TIMEOUT` (timeout), `PHISHTANK_PARSE_ERROR` (JSON parse hatası), `PHISHTANK_UNSUPPORTED_FEED_FORMAT` (array değil), `PHISHTANK_FEED_FAILED` (ağ hatası), `PHISHTANK_HTTP_XXX` (diğer HTTP hataları)
 - Domain eşleştirme: URL parse → hostname → `isSameOrSubdomain` (subdomain dahil, `fake-example.com` hariç)
-- `verifiedMatches` / `onlineMatches` sayılır; eşleşen URL'ler max 50 ile kırpılır
-- Dönüş: `PhishTankCheckResult { domain, provider, enabled, skipped, skipReason?, isListed, verifiedMatches, onlineMatches, matchedUrls[], checkedAt, error? }`
+- `verifiedMatches` / `onlineMatches` sayılır; eşleşen URL'ler max 20 ile kırpılır
+- `provider: 'phishtank-feed'` (feed veya API key ile kurulan URL için)
+- Dönüş: `PhishTankCheckResult { domain, provider, enabled, skipped, skipReason?, isListed, verifiedMatches, onlineMatches, matchedUrls[{url,phishId,detailUrl,verified,online,submittedAt,verifiedAt,target}], checkedAt, error? }`
 
 **checkReputation** (`checks/reputation.check.ts`)
 - DOMAIN **ve** IP asset'lerde çalışır
@@ -394,6 +415,15 @@ Job alındı (ScanJobPayload: assetId, scanRunId?)
 - Dönüş: `{ domain, records: [{type, value}], dmarcRecord, checkedAt, errors: {TIP: mesaj} }`
 - Finding üretmez — sadece `DNS_RECORDS` tipinde snapshot yazar
 
+**checkOtx** (`checks/otx.check.ts`)
+- DOMAIN ve IPv4 asset'lerde çalışır (IPv6 → `skipped: IPV6_NOT_SUPPORTED`)
+- `ENABLE_OTX=false` → `skipped: DISABLED`; `OTX_API_KEY` yoksa → `skipped: NO_CREDENTIALS`
+- Domain için 4 endpoint paralel sorgulanır: `general`, `malware`, `url_list`, `passive_dns`; IPv4 için sadece `general`
+- `general` başarısızsa → `error` ile dönülür; diğer endpoint hataları sessizce 0 sayılır (allSettled)
+- Hata kodları: `INVALID_API_KEY` (401), `RATE_LIMITED` (429), `OTX_TIMEOUT`, `OTX_REQUEST_FAILED`
+- API key asla loglanmaz, response'a veya DB'ye yazılmaz
+- Dönüş: `{ assetValue, assetType, provider, enabled, skipped, pulseCount, pulses[], tags[], malwareCount, urlListCount, passiveDnsCount, checkedAt, error? }`
+
 **checkSecurityHeaders** (`checks/security-headers.check.ts`)
 - Sadece DOMAIN tipli asset'lerde çalışır (IP'lerde atlanır)
 - HEAD request ile başlık kontrolü
@@ -437,6 +467,8 @@ Job alındı (ScanJobPayload: assetId, scanRunId?)
 | `PHISHING_DETECTED` | phishtank | Domain/subdomain phishing listesinde — verified+online→CRITICAL (95), verified only→HIGH (85), sadece eşleşme→MEDIUM (65) |
 | `MALICIOUS_REPUTATION_DETECTED` | reputation | Tehdit istihbaratı/abuse listesinde — score≥90→CRITICAL (95), ≥70→HIGH (85), ≥40→MEDIUM (65), >0→LOW (35), score yok→HIGH (85) |
 | `BREACH_EXPOSURE_DETECTED` | breach | Bilinen veri sızıntısında — password/plaintext_password→CRITICAL (95), password_hash veya ≥5 breach→HIGH (85), diğer→MEDIUM (65) |
+| `OTX_MALWARE_ACTIVITY_DETECTED` | otx | AlienVault OTX malware kaydı var — ≥3 sample→CRITICAL (95), ≥1→HIGH (85) |
+| `OTX_PULSE_DETECTED` | otx | AlienVault OTX tehdit pulse'ı var — ≥5 pulse→HIGH (80), ≥1→MEDIUM (60) |
 
 #### Finding Upsert Mantığı (`utils/finding.ts`)
 
@@ -457,21 +489,56 @@ Finding'ler `(assetId, key)` çiftine göre unique'tir. `upsertFinding`:
 ```
 src/
 ├── pages/
-│   ├── LoginPage.tsx        # Login/Register tabları
-│   ├── AssetsPage.tsx       # Asset listesi + ekleme/doğrulama modalleri
-│   └── AssetDetailPage.tsx  # Bulgu detayları + tarama geçmişi
+│   ├── LoginPage.tsx              # Login/Register tabları
+│   ├── AssetsPage.tsx             # Asset listesi + ekleme/doğrulama modalleri
+│   ├── AssetDetailPage.tsx        # Bulgu detayları + tarama geçmişi
+│   ├── intelligence/
+│   │   ├── ThreatIntelligencePage.tsx   # Threat intel özet sayfası (statik)
+│   │   └── ReputationCenterPage.tsx     # Reputation açıklama sayfası (statik)
+│   └── knowledge/
+│       ├── AboutPage.tsx          # ASM hakkında, mimari, ownership verification
+│       ├── TechnicalInfoPage.tsx  # Veri modeli, check tipleri, aiScore açıklaması
+│       ├── PortGuidePage.tsx      # Port güvenliği rehberi + PORT_EXPOSED/PORT_CHANGE
+│       ├── DnsSecurityPage.tsx    # DNS kayıt tipleri + SPF/DMARC/CAA finding'leri
+│       ├── TlsGuidePage.tsx       # TLS sertifika alanları + expiry thresholds
+│       ├── HttpHeadersPage.tsx    # 6 güvenlik başlığı + SECURITY_HEADER_MISSING
+│       └── RiskScoringPage.tsx    # Severity/aiScore yorumlama + intelligence skorları
 ├── components/
-│   ├── Layout.tsx           # Sidebar navigasyonu
-│   ├── ProtectedRoute.tsx   # JWT yoksa /login'e yönlendir
-│   ├── Badge.tsx            # Severity/status renk rozetleri
-│   └── Spinner.tsx          # Yükleme göstergesi
+│   ├── Layout.tsx                 # Sidebar navigasyonu (3 grup: Monitör/Intelligence/Bilgi Merkezi)
+│   ├── ProtectedRoute.tsx         # JWT yoksa /login'e yönlendir
+│   ├── Badge.tsx                  # Severity/status renk rozetleri
+│   ├── Spinner.tsx                # Yükleme göstergesi
+│   └── knowledge/
+│       ├── KnowledgePage.tsx      # Sayfa wrapper (başlık, açıklama, badge)
+│       ├── KnowledgeCard.tsx      # Bilgi kartı (accent border, icon, badge)
+│       ├── ConceptBlock.tsx       # Kavram tanımı (term + definition + finding badge)
+│       └── InfoTable.tsx          # Tablo bileşeni (bordered, dark theme)
 ├── api/
-│   ├── client.ts            # Axios instance + interceptor (401 → logout)
-│   └── api.ts               # Tüm API fonksiyonları
+│   ├── client.ts                  # Axios instance + interceptor (401 → logout)
+│   └── api.ts                     # Tüm API fonksiyonları
 ├── context/
-│   └── AuthContext.tsx      # Token localStorage yönetimi
-└── types.ts                 # Frontend tipleri
+│   └── AuthContext.tsx            # Token localStorage yönetimi
+├── utils/
+│   └── findingDisplay.ts          # getTurkishAiReport() — dil tespiti + type-based Türkçe fallback
+└── types.ts                       # Frontend tipleri
 ```
+
+#### Route Yapısı (App.tsx)
+
+| Path | Sayfa | Açıklama |
+|------|-------|----------|
+| `/assets` | AssetsPage | Asset listesi |
+| `/assets/:id` | AssetDetailPage | Asset detayı |
+| `/intelligence/lookup` | PassiveLookupPage | Passive tehdit istihbaratı sorgusu (OTX, aktif tarama yok) |
+| `/intelligence/threat` | ThreatIntelligencePage | Threat intel özeti |
+| `/intelligence/reputation` | ReputationCenterPage | Reputation açıklaması |
+| `/about` | AboutPage | ASM hakkında |
+| `/knowledge/technical` | TechnicalInfoPage | Teknik kavramlar |
+| `/knowledge/ports` | PortGuidePage | Port güvenliği |
+| `/knowledge/dns` | DnsSecurityPage | DNS güvenliği |
+| `/knowledge/tls` | TlsGuidePage | TLS/SSL rehberi |
+| `/knowledge/http-headers` | HttpHeadersPage | HTTP başlık güvenliği |
+| `/knowledge/risk-scoring` | RiskScoringPage | Risk değerlendirmesi |
 
 #### State Yönetimi
 
@@ -499,6 +566,7 @@ User
   password    String
   createdAt   DateTime  @default(now())
   assets      Asset[]
+  passiveLookupRuns  PassiveLookupRun[]
 
 Asset
   id            String      @id @default(cuid())
@@ -548,6 +616,23 @@ Finding
   lastSeenAt  DateTime  @default(now())
   resolvedAt  DateTime?
   @@unique([assetId, key])
+
+PassiveLookupRun
+  id             String    @id @default(cuid())
+  userId         String
+  target         String                    -- normalize edilmiş domain veya IPv4
+  targetType     String                    -- "DOMAIN" | "IP"
+  source         String    @default("OTX")
+  status         String    @default("DONE") -- "DONE" | "ERROR" | "SKIPPED"
+  otxJson        Json?                     -- OtxLookupResult snapshot (API key içermez)
+  aiSummary      String?                   -- Türkçe template-based özet
+  aiRecommendations Json?                  -- String[] Türkçe öneriler
+  error          String?
+  checkedAt      DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  @@index([userId])
+  @@index([userId, checkedAt])
+  @@index([target])
 ```
 
 ### Migration Geçmişi
@@ -597,6 +682,15 @@ Finding
 |--------|----------|------|----------|
 | POST | `/scans/run-now?assetId=X` | ✓ | Anında tarama kuyruğa ekle |
 | GET | `/scans/history?assetId=X` | ✓ | Tarama geçmişi |
+
+### Pasif Intelligence (`/intelligence`)
+
+| Method | Endpoint | Auth | Açıklama |
+|--------|----------|------|----------|
+| GET | `/intelligence/lookup?target=X` | ✓ | Passive OTX sorgusu; sonuç DB'ye kaydedilir, asset/finding oluşturmaz |
+| GET | `/intelligence/history` | ✓ | Kullanıcının passive lookup geçmişi (`page`, `limit` opsiyonel) |
+| GET | `/intelligence/history/:id` | ✓ | Tek kayıt detayı (otxJson + aiSummary + aiRecommendations); başkasının kaydı 404 döner |
+| POST | `/intelligence/history/:id/ask` | ✓ | OTX verisi bağlamında AI'ya soru sor; `{question}` body, `{answer, usedContext}` yanıt; chat DB'ye kaydedilmez |
 
 ### Bulgular (`/findings`)
 
@@ -813,7 +907,8 @@ cd apps/api && pnpm test:watch
 - [x] **Pwned Passwords Auth Security** _(2026-05-09)_: Register sırasında HIBP K-Anonymity kontrolü; SHA-1 prefix (5 karakter) gönderilir, plaintext/tam hash gönderilmez; pwned şifre 400 ile reddedilir; soft/strict failure mode; `ENABLE_PWNED_PASSWORD_CHECK=false` ile devre dışı
 - [x] **Worker Stability / Scan Reliability** _(2026-05-09)_: `safeCheck` wrapper ile 11 check izole edildi; crash → typed fallback, scan devam eder; snapshot kayıt `Promise.allSettled`; her finding processor try/catch ile izole; port/DNS/robots finding processor'larındaki yanlış resolve bug'ları düzeltildi; `FAILED` sadece kritik hatada
 - [x] **Scan Scheduling / Queue Reliability** _(2026-05-09)_: JobId stratejisi netleştirildi (`scan:schedule:<id>` / `scan:manual:<id>`); scheduled job'lara retry/backoff/removeOn eklendi; `unschedule` tüm duplicate'leri kaldırıyor; PENDING asset'e schedule kurulmuyor; worker'da scheduled/manual log ayrımı; 9 test
-- [x] **Backend Intelligence Endpoint** _(2026-05-09)_: `GET /assets/:id/intelligence` eklendi; 7 check tipi için son DONE scan snapshot'ları paralel sorgulanır; `lastUpdatedAt` en son snapshot tarihidir; ownership kontrolü; 6 service testi + 1 controller testi (toplam 40 test)
+- [x] **Backend Intelligence Endpoint** _(2026-05-09)_: `GET /assets/:id/intelligence` eklendi; 8 check tipi için son DONE scan snapshot'ları paralel sorgulanır; `lastUpdatedAt` en son snapshot tarihidir; ownership kontrolü
+- [x] **AlienVault OTX Intelligence Integration** _(2026-05-11)_: `OTX_INTELLIGENCE` snapshot, `OTX_PULSE_DETECTED` (≥10→MEDIUM/60, ≥1→LOW/45) ve `OTX_MALWARE_ACTIVITY_DETECTED` (≥50→HIGH/80, ≥1→MEDIUM/65) finding'leri; ENABLE_OTX=false ise skipped; safeCheck ile scan asla FAILED olmaz; API key loglanmaz/response'a yazılmaz; domain+IPv4 desteği, IPv6 skipped; intelligence endpoint, assistant context ve frontend kartı güncellendi. **OTX yorumlama notu:** OTX sonuçları kesin zararlılık kanıtı olarak değil, threat intelligence association sinyali olarak yorumlanır; büyük/popüler domainlerde marka taklidi veya analiz referansı nedeniyle ilişki görülebilir.
 - [ ] **Test coverage artırma**: Kritik servisler için unit testler yazılacak
 - [ ] **Subdomain keşfi**: Bir domain'e bağlı subdomain'leri otomatik keşfedip asset olarak ekleme
 - [ ] **CVE/NVD entegrasyonu**: Açık portlardaki servis versiyonlarını NVD ile eşleştirip CVE bulgu üretme

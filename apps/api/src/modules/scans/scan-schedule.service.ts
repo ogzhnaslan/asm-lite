@@ -1,8 +1,7 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { JOB_SCAN_RUN, QUEUE_SCAN } from '../queue/queue.constants';
-import { SCAN_INTERVALS } from '@asm/shared';
+import { JOB_SCAN_RUN, JOB_ID_SCHEDULED_PREFIX, QUEUE_SCAN } from '../queue/queue.constants';
 
 const INTERVAL_MS: Record<string, number> = {
   '1h':  1 * 60 * 60 * 1000,
@@ -11,16 +10,24 @@ const INTERVAL_MS: Record<string, number> = {
   '7d':  7 * 24 * 60 * 60 * 1000,
 };
 
-/** @deprecated import SCAN_INTERVALS from '@asm/shared' */
-export const VALID_INTERVALS: string[] = [...SCAN_INTERVALS];
+const JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 2000 },
+  removeOnComplete: { age: 60 * 60 * 24, count: 1000 },
+  removeOnFail: { age: 60 * 60 * 24 * 7, count: 1000 },
+};
 
 @Injectable()
 export class ScanScheduleService {
   constructor(@InjectQueue(QUEUE_SCAN) private readonly queue: Queue) {}
 
+  scheduledJobId(assetId: string): string {
+    return `${JOB_ID_SCHEDULED_PREFIX}:${assetId}`;
+  }
+
   async schedule(assetId: string, interval: string): Promise<void> {
     const ms = INTERVAL_MS[interval] ?? INTERVAL_MS['24h'];
-    const jobId = `schedule:${assetId}`;
+    const jobId = this.scheduledJobId(assetId);
 
     await this.unschedule(assetId);
 
@@ -30,16 +37,15 @@ export class ScanScheduleService {
       {
         repeat: { every: ms },
         jobId,
+        ...JOB_OPTIONS,
       },
     );
   }
 
   async unschedule(assetId: string): Promise<void> {
-    const jobId = `schedule:${assetId}`;
+    const jobId = this.scheduledJobId(assetId);
     const repeatableJobs = await this.queue.getRepeatableJobs();
-    const existing = repeatableJobs.find((j) => j.id === jobId);
-    if (existing) {
-      await this.queue.removeRepeatableByKey(existing.key);
-    }
+    const matches = repeatableJobs.filter((j) => j.id === jobId);
+    await Promise.all(matches.map((j) => this.queue.removeRepeatableByKey(j.key)));
   }
 }

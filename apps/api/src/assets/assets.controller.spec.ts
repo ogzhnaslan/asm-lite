@@ -13,6 +13,7 @@ const mockAssetsService = {
   requestDnsToken: jest.fn(),
   verifyHttp: jest.fn(),
   verifyDns: jest.fn(),
+  getIntelligence: jest.fn(),
 };
 
 const mockUser = { id: 'user-1', email: 'test@example.com' };
@@ -53,5 +54,10 @@ describe('AssetsController', () => {
   it('setCritical → service.setCritical çağırır', () => {
     controller.setCritical(mockUser, 'asset-1', { critical: true });
     expect(mockAssetsService.setCritical).toHaveBeenCalledWith('user-1', 'asset-1', true);
+  });
+
+  it('getIntelligence → service.getIntelligence çağırır', () => {
+    controller.getIntelligence(mockUser, 'asset-1');
+    expect(mockAssetsService.getIntelligence).toHaveBeenCalledWith('user-1', 'asset-1');
   });
 });

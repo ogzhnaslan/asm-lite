@@ -1,4 +1,6 @@
 import { Module } from "@nestjs/common";
+import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
+import { APP_GUARD } from "@nestjs/core";
 import { AppController } from "./app.controller";
 import { AppService } from "./app.service";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -8,9 +10,18 @@ import { ScansModule } from "./modules/scans/scans.module";
 import { FindingsModule } from "./modules/findings/findings.module";
 import { QueueModule } from "./modules/queue/queue.module";
 import { ScanQueueModule } from "./modules/queue/scan-queue.module";
+import { AssistantModule } from "./modules/assistant/assistant.module";
+import { IntelligenceModule } from "./modules/intelligence/intelligence.module";
+import { SqliTargetsModule } from "./modules/sqli-targets/sqli-targets.module";
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60_000,
+        limit: 60,
+      },
+    ]),
     PrismaModule,
     AuthModule,
     AssetsModule,
@@ -18,8 +29,17 @@ import { ScanQueueModule } from "./modules/queue/scan-queue.module";
     FindingsModule,
     QueueModule,
     ScanQueueModule,
+    AssistantModule,
+    IntelligenceModule,
+    SqliTargetsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

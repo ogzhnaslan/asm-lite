@@ -1,5 +1,9 @@
 import { apiClient } from './client';
-import type { Asset, Finding, Paginated, ScanRun } from '../types';
+import type {
+  Asset, AssistantChatResponse, CreateSqliTargetPayload, Finding, IntelligenceReport,
+  Paginated, PassiveLookupAskResponse, PassiveLookupHistoryResponse, PassiveLookupResponse,
+  PassiveLookupRun, ScanRun, SqliTarget, UpdateSqliTargetPayload,
+} from '../types';
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -44,13 +48,20 @@ export const setCritical = (id: string, critical: boolean) =>
 export const updateScanInterval = (id: string, interval: string) =>
   apiClient.patch<{ ok: boolean; assetId: string; scanInterval: string }>(`/assets/${id}/scan-interval`, { interval }).then(r => r.data);
 
+export const getAssetIntelligence = (id: string) =>
+  apiClient.get<IntelligenceReport>(`/assets/${id}/intelligence`).then(r => r.data);
+
 // ─── Scans ───────────────────────────────────────────────────────────────────
 
 export const runNow = (assetId: string) =>
   apiClient.post<{ ok: boolean; scanRunId: string; status: string }>('/scans/run-now', null, { params: { assetId } }).then(r => r.data);
 
-export const getScanHistory = (assetId: string) =>
-  apiClient.get<ScanRun[]>('/scans/history', { params: { assetId } }).then(r => r.data);
+// Backend may return ScanRun[] (old) or { items, total, page, limit } (new).
+// We always normalise to ScanRun[] so callers don't need to change.
+export const getScanHistory = (assetId: string): Promise<ScanRun[]> =>
+  apiClient
+    .get<ScanRun[] | Paginated<ScanRun>>('/scans/history', { params: { assetId } })
+    .then(r => (Array.isArray(r.data) ? r.data : r.data.items));
 
 // ─── Findings ────────────────────────────────────────────────────────────────
 
@@ -62,3 +73,44 @@ export const getFindings = (
 
 export const ackFinding = (id: string) =>
   apiClient.patch<Finding>(`/findings/${id}/ack`).then(r => r.data);
+
+// ─── Passive Intelligence Lookup ─────────────────────────────────────────────
+
+export const lookupPassiveIntelligence = (target: string) =>
+  apiClient
+    .get<PassiveLookupResponse>('/intelligence/lookup', { params: { target } })
+    .then(r => r.data);
+
+export const getPassiveLookupHistory = (page = 1, limit = 50) =>
+  apiClient
+    .get<PassiveLookupHistoryResponse>('/intelligence/history', { params: { page, limit } })
+    .then(r => r.data);
+
+export const getPassiveLookupHistoryDetail = (id: string) =>
+  apiClient
+    .get<PassiveLookupRun>(`/intelligence/history/${id}`)
+    .then(r => r.data);
+
+export const askPassiveLookupHistory = (id: string, question: string) =>
+  apiClient
+    .post<PassiveLookupAskResponse>(`/intelligence/history/${id}/ask`, { question })
+    .then(r => r.data);
+
+// ─── Assistant ────────────────────────────────────────────────────────────────
+
+export const askAssistant = (assetId: string, message: string) =>
+  apiClient.post<AssistantChatResponse>(`/assets/${assetId}/assistant/chat`, { message }).then(r => r.data);
+
+// ─── SQLi Targets ────────────────────────────────────────────────────────────
+
+export const listSqliTargets = (assetId: string) =>
+  apiClient.get<SqliTarget[]>(`/assets/${assetId}/sqli-targets`).then(r => r.data);
+
+export const createSqliTarget = (assetId: string, payload: CreateSqliTargetPayload) =>
+  apiClient.post<SqliTarget>(`/assets/${assetId}/sqli-targets`, payload).then(r => r.data);
+
+export const updateSqliTarget = (assetId: string, targetId: string, payload: UpdateSqliTargetPayload) =>
+  apiClient.patch<SqliTarget>(`/assets/${assetId}/sqli-targets/${targetId}`, payload).then(r => r.data);
+
+export const deleteSqliTarget = (assetId: string, targetId: string) =>
+  apiClient.delete<{ ok: true; id: string }>(`/assets/${assetId}/sqli-targets/${targetId}`).then(r => r.data);

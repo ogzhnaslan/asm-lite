@@ -12,12 +12,12 @@ const mockScanRun = { id: 'run-1', startedAt: new Date(), status: 'RUNNING' };
 describe('ScansService', () => {
   let service: ScansService;
   let prismaAsset: { findFirst: jest.Mock };
-  let prismaScanRun: { findMany: jest.Mock; create: jest.Mock };
+  let prismaScanRun: { findMany: jest.Mock; create: jest.Mock; count: jest.Mock };
   let queueAdd: jest.Mock;
 
   beforeEach(async () => {
     prismaAsset = { findFirst: jest.fn() };
-    prismaScanRun = { findMany: jest.fn(), create: jest.fn() };
+    prismaScanRun = { findMany: jest.fn(), create: jest.fn(), count: jest.fn() };
     queueAdd = jest.fn().mockResolvedValue({ id: 'job-1' });
 
     const module: TestingModule = await Test.createTestingModule({
@@ -49,11 +49,14 @@ describe('ScansService', () => {
       prismaScanRun.findMany.mockResolvedValue([
         { id: 'run-1', assetId: 'asset-1', startedAt: new Date(), finishedAt: new Date(), status: 'DONE', _count: { findings: 3 } },
       ]);
+      prismaScanRun.count.mockResolvedValue(1);
 
       const result = await service.history('user-1', 'asset-1');
 
-      expect(result).toHaveLength(1);
-      expect(result[0]._count.findings).toBe(3);
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]._count.findings).toBe(3);
+      expect(result.total).toBe(1);
+      expect(result.page).toBe(1);
     });
   });
 

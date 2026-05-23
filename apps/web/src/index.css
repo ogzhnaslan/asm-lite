@@ -1,3 +1,178 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    background-color: #020617;
+    background-image: radial-gradient(ellipse 80% 40% at 50% -5%, rgba(56,189,248,0.07) 0%, transparent 65%);
+    color: #e2e8f0;
+    font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Subtle grid texture — operations center feel */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background-image:
+      linear-gradient(rgba(56,189,248,0.018) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(56,189,248,0.018) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Nearly invisible scanline — texture only */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 3px,
+      rgba(255,255,255,0.004) 3px,
+      rgba(255,255,255,0.004) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.15); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(56,189,248,0.3); }
+
+  ::selection { background: rgba(56,189,248,0.2); color: #f1f5f9; }
+}
+
+@layer utilities {
+  /* ── Card surfaces ── */
+  .card-surface {
+    background: linear-gradient(145deg, #0e1d35 0%, #0a1628 100%);
+    border: 1px solid rgba(56,189,248,0.08);
+  }
+  .card-surface-hover:hover {
+    border-color: rgba(56,189,248,0.18);
+    box-shadow: 0 8px 32px rgba(56,189,248,0.06);
+  }
+
+  /* ── Operations panel ── */
+  .ops-surface {
+    background: linear-gradient(135deg, #0d1b2e 0%, #0a1628 100%);
+    border: 1px solid rgba(56,189,248,0.1);
+  }
+
+  /* ── Terminal accent utilities ── */
+  .term-surface {
+    background: #0a1628;
+    border: 1px solid rgba(0,255,65,0.08);
+  }
+  .term-border { border: 1px solid rgba(0,255,65,0.10); }
+  .term-border-active {
+    border-color: rgba(0,255,65,0.3);
+    box-shadow: 0 0 0 1px rgba(0,255,65,0.08), 0 0 16px rgba(0,255,65,0.06);
+  }
+  .border-glow-cyan {
+    border-color: rgba(56,189,248,0.35);
+    box-shadow: 0 0 0 1px rgba(56,189,248,0.1), 0 0 20px rgba(56,189,248,0.08);
+  }
+
+  /* ── Glow effects ── */
+  .glow-green  { box-shadow: 0 0 16px rgba(0,255,65,0.10), inset 0 0 12px rgba(0,255,65,0.02); }
+  .glow-cyan   { box-shadow: 0 0 20px rgba(56,189,248,0.14), inset 0 0 12px rgba(56,189,248,0.03); }
+  .glow-emerald { box-shadow: 0 0 16px rgba(52,211,153,0.12); }
+  .glow-red    { box-shadow: 0 0 16px rgba(239,68,68,0.14); }
+  .glow-amber  { box-shadow: 0 0 16px rgba(245,158,11,0.12); }
+
+  /* ── Text gradients ── */
+  .text-gradient {
+    background: linear-gradient(135deg, #38bdf8, #818cf8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .text-ops-gradient {
+    background: linear-gradient(135deg, #38bdf8 0%, #34d399 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .text-terminal-gradient {
+    background: linear-gradient(135deg, #00ff41, #22d3ee);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* ── Terminal cursor ── */
+  .terminal-cursor::after {
+    content: '▋';
+    animation: cursorBlink 1s step-end infinite;
+    color: #00ff41;
+    margin-left: 2px;
+    font-size: 0.8em;
+    opacity: 0.7;
+  }
+
+  /* ── Legacy glass ── */
+  .glass {
+    background: rgba(13,27,46,0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(56,189,248,0.08);
+  }
+  .glass-hover:hover {
+    background: rgba(13,27,46,0.8);
+    border-color: rgba(56,189,248,0.14);
+  }
+
+  /* ── Login page only ── */
+  .term-grid-bg {
+    background-image:
+      linear-gradient(rgba(0,255,65,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,255,65,0.02) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  .scan-line {
+    position: absolute;
+    left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(0,255,65,0.2), transparent);
+    animation: scanSweep 6s linear infinite;
+    pointer-events: none;
+  }
+}
+
+/* Smooth height transitions */
+.expand-enter {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.45s cubic-bezier(0.4,0,0.2,1), opacity 0.3s ease;
+}
+.expand-enter-active { max-height: 2000px; opacity: 1; }
+
+/* Gauge stroke */
+.gauge-arc { transition: stroke-dasharray 1.2s cubic-bezier(0.4,0,0.2,1); }
+
+@keyframes cursorBlink {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 0; }
+}
+
+@keyframes scanSweep {
+  0% { top: -1px; }
+  100% { top: 100%; }
+}
+
+@keyframes pingGreen {
+  75%, 100% { transform: scale(2); opacity: 0; }
+}

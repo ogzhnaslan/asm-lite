@@ -1,12 +1,13 @@
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
-import { QUEUE_SCAN, JOB_SCAN_RUN } from "../queue/queue.constants";
+import { QUEUE_SCAN, JOB_SCAN_RUN, JOB_ID_MANUAL_PREFIX } from "../queue/queue.constants";
 import {
   BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { AssetStatus, ScanRunStatus } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 
 @Injectable()
@@ -16,7 +17,7 @@ export class ScansService {
     @InjectQueue(QUEUE_SCAN) private readonly scanQueue: Queue,
   ) { }
 
-  async history(userId: string, assetId: string) {
+  async history(userId: string, assetId: string, page = 1, limit = 20) {
     if (!assetId) {
       throw new BadRequestException("assetId is required");
     }
@@ -30,18 +31,27 @@ export class ScansService {
       throw new NotFoundException("Asset not found");
     }
 
-    return this.prisma.scanRun.findMany({
-      where: { assetId },
-      orderBy: [{ startedAt: "desc" }],
-      select: {
-        id: true,
-        assetId: true,
-        startedAt: true,
-        finishedAt: true,
-        status: true,
-        _count: { select: { findings: true } },
-      },
-    });
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await Promise.all([
+      this.prisma.scanRun.findMany({
+        where: { assetId },
+        orderBy: { startedAt: "desc" },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          assetId: true,
+          startedAt: true,
+          finishedAt: true,
+          status: true,
+          _count: { select: { findings: true } },
+        },
+      }),
+      this.prisma.scanRun.count({ where: { assetId } }),
+    ]);
+
+    return { items, total, page, limit };
   }
 
   async runNow(userId: string, assetId: string) {
@@ -58,14 +68,14 @@ export class ScansService {
       throw new NotFoundException("Asset not found");
     }
 
-    if (asset.status !== "VERIFIED") {
+    if (asset.status !== AssetStatus.VERIFIED) {
       throw new ForbiddenException("Asset is not verified");
     }
 
     const run = await this.prisma.scanRun.create({
       data: {
         assetId: asset.id,
-        status: "RUNNING",
+        status: ScanRunStatus.RUNNING,
       },
       select: { id: true, startedAt: true, status: true },
     });
@@ -74,13 +84,11 @@ export class ScansService {
       JOB_SCAN_RUN,
       { scanRunId: run.id, assetId: asset.id },
       {
-        removeOnComplete: 1000,
-        removeOnFail: 5000,
+        jobId: `${JOB_ID_MANUAL_PREFIX}:${run.id}`,
         attempts: 3,
-        backoff: {
-          type: "exponential",
-          delay: 2000,
-        },
+        backoff: { type: "exponential", delay: 2000 },
+        removeOnComplete: { age: 60 * 60 * 24, count: 1000 },
+        removeOnFail: { age: 60 * 60 * 24 * 7, count: 1000 },
       },
     );
 

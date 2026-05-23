@@ -1,14 +1,24 @@
 import { Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { FindingsService } from './findings.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
 
+@ApiTags('findings')
+@ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('findings')
 export class FindingsController {
   constructor(private readonly findingsService: FindingsService) {}
 
+  @ApiOperation({ summary: 'List findings for an asset' })
+  @ApiQuery({ name: 'assetId', required: true })
+  @ApiQuery({ name: 'severity', required: false, enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] })
+  @ApiQuery({ name: 'resolved', required: false, enum: ['true', 'false'] })
+  @ApiQuery({ name: 'isNew', required: false, enum: ['true', 'false'] })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
   @Get()
   list(
     @CurrentUser() user: AuthUser,
@@ -18,7 +28,7 @@ export class FindingsController {
     @Query('isNew') isNew?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ) {
+  ): Promise<unknown> {
     return this.findingsService.list(user.id, assetId, {
       severity,
       resolved,
@@ -28,8 +38,9 @@ export class FindingsController {
     });
   }
 
+  @ApiOperation({ summary: 'Acknowledge a finding (mark as seen)' })
   @Patch(':id/ack')
-  ack(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+  ack(@CurrentUser() user: AuthUser, @Param('id') id: string): Promise<unknown> {
     return this.findingsService.ack(user.id, id);
   }
 }
