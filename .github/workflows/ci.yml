@@ -36,8 +36,23 @@ jobs:
         run: pnpm --filter @asm/shared build
 
       - name: Generate Prisma client
-        working-directory: apps/api
-        run: pnpm exec prisma generate
+        run: |
+          (cd apps/api && pnpm exec prisma generate)
+          # pnpm + Prisma custom-output tip senkronizasyonu (CLAUDE.md'de belgeli
+          # quirk): generate çıktısı apps/api/node_modules/.prisma/client'a yazılır
+          # ama @prisma/client import'u pnpm store'daki .prisma/client kopyasına
+          # çözülür. Temiz install'da store kopyası stub kalır → typecheck patlar.
+          # Üretilen client'ı store kopyalarına eşitleyerek bunu önlüyoruz.
+          src="apps/api/node_modules/.prisma/client"
+          synced=0
+          for dest in node_modules/.pnpm/@prisma+client@*/node_modules/.prisma/client; do
+            if [ -d "$(dirname "$dest")" ]; then
+              mkdir -p "$dest"
+              cp -r "$src/." "$dest/"
+              synced=$((synced+1))
+            fi
+          done
+          echo "Prisma client store kopyaları senkronize edildi: $synced"
 
       - name: Typecheck (api — spec dosyaları dahil)
         run: pnpm --filter api exec tsc --noEmit -p tsconfig.json
