@@ -25,6 +25,13 @@ const ENV_TO_CLEAR = [
   'LEAKCHECK_API_KEY',
   'BREACH_PROVIDER',
   'ENABLE_PWNED_PASSWORD_CHECK',
+  // Visual AI vision katmanı — tests her zaman kapalı başlatır, spec'ler kendi
+  // beforeEach'inde ihtiyacı durumunda ENABLE_VISUAL_AI='true' set eder.
+  'ENABLE_VISUAL_AI',
+  'VISUAL_AI_PROVIDER',
+  'VISUAL_AI_BASE_URL',
+  'VISUAL_AI_MODEL',
+  'VISUAL_AI_TIMEOUT_MS',
 ] as const;
 
 for (const key of ENV_TO_CLEAR) {

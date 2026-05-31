@@ -15,6 +15,8 @@ jest.mock('./checks/reputation.check');
 jest.mock('./checks/breach.check');
 jest.mock('./checks/otx.check');
 jest.mock('./checks/sqli.check');
+jest.mock('./checks/visual.check');
+jest.mock('./checks/visual/visual-persistence');
 
 jest.mock('./findings/port.findings');
 jest.mock('./findings/tls.findings');
@@ -29,6 +31,7 @@ jest.mock('./findings/reputation.findings');
 jest.mock('./findings/breach.findings');
 jest.mock('./findings/otx.findings');
 jest.mock('./findings/sqli.findings');
+jest.mock('./findings/visual.findings');
 
 jest.mock('./ai/analyze');
 jest.mock('./utils/logger');
@@ -51,6 +54,8 @@ import { checkReputation } from './checks/reputation.check';
 import { checkBreachExposure } from './checks/breach.check';
 import { checkOtx } from './checks/otx.check';
 import { checkSqli } from './checks/sqli.check';
+import { checkVisualAnalysis } from './checks/visual.check';
+import { persistVisualAnalysisRun } from './checks/visual/visual-persistence';
 
 import { processPortFindings } from './findings/port.findings';
 import { processTlsFindings } from './findings/tls.findings';
@@ -65,6 +70,7 @@ import { processReputationFindings } from './findings/reputation.findings';
 import { processBreachFindings } from './findings/breach.findings';
 import { processOtxFindings } from './findings/otx.findings';
 import { processSqliFindings } from './findings/sqli.findings';
+import { processVisualFindings } from './findings/visual.findings';
 
 import { analyzeFindings } from './ai/analyze';
 import { log } from './utils/logger';
@@ -99,6 +105,7 @@ const DOMAIN_CHECKS_OK = {
   breach:    { domain: 'example.com', enabled: false, skipped: true, provider: 'mock' as const, status: 'skipped' as const, breachCount: 0, exposedEmailsCount: null, latestBreachDate: null, sources: [], sensitiveDataTypes: [], checkedAt: '' },
   otx:       { assetValue: 'example.com', assetType: 'DOMAIN' as const, provider: 'alienvault-otx' as const, enabled: false, skipped: true, pulseCount: 0, pulses: [], tags: [], malwareCount: 0, urlListCount: 0, passiveDnsCount: 0, checkedAt: '' },
   sqli:      { enabled: true, skipped: false, targetCount: 1, testedParams: 1, suspectedCount: 0, results: [], checkedAt: '' },
+  visual:    { enabled: true, skipped: false, assetValue: 'example.com', url: 'https://example.com', finalUrl: 'https://example.com/', statusCode: 200, screenshotPath: '/tmp/visual.png', screenshotHash: 'hash', screenshotWidth: 1440, screenshotHeight: 900, title: 'Example', metaDescription: null, h1Texts: [], visibleText: 'sample', visibleTextHash: 'h', siteCategory: 'corporate', purposeSummary: 'Test', language: 'tr', signals: [], riskLevel: 'LOW', analysis: { hasLoginForm: false, hasPasswordInput: false, hasAdminHints: false, hasDefaultServerPage: false, hasErrorPage: false, isEmptyPage: false, linkCount: 5, formCount: 0, inputCount: 0, buttonCount: 0, detectedKeywords: [] }, aiVisualAnalysis: null, checkedAt: '' },
 };
 
 function setupCheckMocks(overrides: Partial<Record<string, unknown>> = {}) {
@@ -116,6 +123,7 @@ function setupCheckMocks(overrides: Partial<Record<string, unknown>> = {}) {
   (checkBreachExposure as jest.Mock).mockResolvedValue(v.breach);
   (checkOtx as jest.Mock).mockResolvedValue(v.otx);
   (checkSqli as jest.Mock).mockResolvedValue(v.sqli);
+  (checkVisualAnalysis as jest.Mock).mockResolvedValue(v.visual);
 }
 
 function setupFinderMocks() {
@@ -132,6 +140,8 @@ function setupFinderMocks() {
   (processBreachFindings as jest.Mock).mockResolvedValue(undefined);
   (processOtxFindings as jest.Mock).mockResolvedValue(undefined);
   (processSqliFindings as jest.Mock).mockResolvedValue(undefined);
+  (processVisualFindings as jest.Mock).mockResolvedValue(undefined);
+  (persistVisualAnalysisRun as jest.Mock).mockResolvedValue({ id: 'visualrun-1' });
 }
 
 // Mock Prisma — typed as any to avoid full PrismaClient type compat
@@ -155,12 +165,16 @@ describe('runScan', () => {
     setupCheckMocks();
     setupFinderMocks();
     (analyzeFindings as jest.Mock).mockResolvedValue([]);
-    // Env determinizm — SQLi branch'i sadece explicit set edildiğinde aktif
+    // Env determinizm — SQLi/Visual branch'leri sadece explicit set edildiğinde aktif
     delete process.env.ENABLE_SQLI_CHECK;
+    delete process.env.ENABLE_VISUAL_ANALYSIS;
+    delete process.env.ENABLE_VISUAL_AI;
   });
 
   afterEach(() => {
     delete process.env.ENABLE_SQLI_CHECK;
+    delete process.env.ENABLE_VISUAL_ANALYSIS;
+    delete process.env.ENABLE_VISUAL_AI;
   });
 
   // ─── 1. Asset lookup failures ─────────────────────────────────────────────
@@ -696,6 +710,151 @@ describe('runScan', () => {
       expect(sqliCall).toBeDefined();
       const data = (sqliCall![0] as { data: { dataJson: { skipReason: string } } }).data.dataJson;
       expect(data.skipReason).toBe('NOT_DOMAIN');
+    });
+  });
+
+  // ─── 11. Visual Analyzer integration (Sprint Visual-D) ────────────────────
+
+  describe('Visual Analyzer integration', () => {
+    beforeEach(() => {
+      mockPrisma.asset.findUnique.mockResolvedValue(makeAsset('DOMAIN'));
+    });
+
+    it('ENABLE_VISUAL_ANALYSIS=false → checkVisualAnalysis çağrılmaz, snapshot DISABLED skipped', async () => {
+      await runScan(mockPrisma as unknown as PrismaClient, makeJob('asset-1', 'run-1'));
+
+      expect(checkVisualAnalysis).not.toHaveBeenCalled();
+      expect(persistVisualAnalysisRun).not.toHaveBeenCalled();
+
+      const calls = (mockPrisma.scanCheckResult.create as jest.Mock).mock.calls;
+      const visualCall = calls.find((c) => (c[0] as { data: { type: string } }).data.type === 'VISUAL_ANALYSIS');
+      expect(visualCall).toBeDefined();
+      const data = (visualCall![0] as { data: { dataJson: { skipped: boolean; skipReason: string; enabled: boolean } } }).data.dataJson;
+      expect(data.skipped).toBe(true);
+      expect(data.skipReason).toBe('DISABLED');
+      expect(data.enabled).toBe(false);
+    });
+
+    it('ENABLE_VISUAL_ANALYSIS=true → checkVisualAnalysis bir kez çağrılır, persist çağrılır, snapshot yazılır', async () => {
+      process.env.ENABLE_VISUAL_ANALYSIS = 'true';
+
+      await runScan(mockPrisma as unknown as PrismaClient, makeJob('asset-1', 'run-1'));
+
+      expect(checkVisualAnalysis).toHaveBeenCalledTimes(1);
+      expect(persistVisualAnalysisRun).toHaveBeenCalledTimes(1);
+
+      const calls = (mockPrisma.scanCheckResult.create as jest.Mock).mock.calls;
+      const visualCall = calls.find((c) => (c[0] as { data: { type: string } }).data.type === 'VISUAL_ANALYSIS');
+      expect(visualCall).toBeDefined();
+    });
+
+    it('persistVisualAnalysisRun visualResult ve assetId ile çağrılır', async () => {
+      process.env.ENABLE_VISUAL_ANALYSIS = 'true';
+
+      await runScan(mockPrisma as unknown as PrismaClient, makeJob('asset-1', 'run-1'));
+
+      const call = (persistVisualAnalysisRun as jest.Mock).mock.calls[0];
+      expect(call[1]).toEqual(expect.objectContaining({
+        assetId: 'asset-1',
+        visualResult: expect.objectContaining({ assetValue: 'example.com' }),
+      }));
+    });
+
+    it('processVisualFindings visualRunId ile çağrılır', async () => {
+      process.env.ENABLE_VISUAL_ANALYSIS = 'true';
+
+      await runScan(mockPrisma as unknown as PrismaClient, makeJob('asset-1', 'run-1'));
+
+      const call = (processVisualFindings as jest.Mock).mock.calls[0];
+      expect(call[1]).toEqual(expect.objectContaining({
+        asset: expect.objectContaining({ id: 'asset-1' }),
+        scanRunId: 'run-1',
+        visualRunId: 'visualrun-1',
+      }));
+    });
+
+    it('checkVisualAnalysis reject → safeCheck fallback CHECK_CRASHED, scan DONE', async () => {
+      process.env.ENABLE_VISUAL_ANALYSIS = 'true';
+      (checkVisualAnalysis as jest.Mock).mockRejectedValue(new Error('playwright boom'));
+
+      const result = await runScan(mockPrisma as unknown as PrismaClient, makeJob('asset-1', 'run-1'));
+
+      expect(result.ok).toBe(true);
+      expect(mockPrisma.scanRun.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'DONE' }) }),
+      );
+
+      const calls = (mockPrisma.scanCheckResult.create as jest.Mock).mock.calls;
+      const visualCall = calls.find((c) => (c[0] as { data: { type: string } }).data.type === 'VISUAL_ANALYSIS');
+      const data = (visualCall![0] as { data: { dataJson: { error: string } } }).data.dataJson;
+      expect(data.error).toBe('CHECK_CRASHED');
+    });
+
+    it('checkVisualAnalysis crash → persist çağrılmaz (skipped/error guard)', async () => {
+      process.env.ENABLE_VISUAL_ANALYSIS = 'true';
+      (checkVisualAnalysis as jest.Mock).mockRejectedValue(new Error('crash'));
+
+      await runScan(mockPrisma as unknown as PrismaClient, makeJob('asset-1', 'run-1'));
+
+      expect(persistVisualAnalysisRun).not.toHaveBeenCalled();
+    });
+
+    it('persistVisualAnalysisRun reject → scan DONE, processVisualFindings yine çağrılır (visualRunId=null)', async () => {
+      process.env.ENABLE_VISUAL_ANALYSIS = 'true';
+      (persistVisualAnalysisRun as jest.Mock).mockRejectedValue(new Error('db error'));
+
+      const result = await runScan(mockPrisma as unknown as PrismaClient, makeJob('asset-1', 'run-1'));
+
+      expect(result.ok).toBe(true);
+      const call = (processVisualFindings as jest.Mock).mock.calls[0];
+      expect(call[1]).toEqual(expect.objectContaining({ visualRunId: null }));
+    });
+
+    it('processVisualFindings reject → scan DONE (per-processor try/catch)', async () => {
+      process.env.ENABLE_VISUAL_ANALYSIS = 'true';
+      (processVisualFindings as jest.Mock).mockRejectedValue(new Error('finding crash'));
+
+      const result = await runScan(mockPrisma as unknown as PrismaClient, makeJob('asset-1', 'run-1'));
+
+      expect(result.ok).toBe(true);
+      expect(log).toHaveBeenCalledWith('findings:visual:error', expect.objectContaining({ error: 'finding crash' }));
+    });
+
+    it('IP asset + ENABLE_VISUAL_ANALYSIS=true → checkVisualAnalysis yine çağrılır (motor NOT_DOMAIN döner)', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValue(makeAsset('IP'));
+      process.env.ENABLE_VISUAL_ANALYSIS = 'true';
+      (checkVisualAnalysis as jest.Mock).mockResolvedValue({
+        enabled: true, skipped: true, skipReason: 'NOT_DOMAIN', assetValue: '1.2.3.4',
+        url: null, finalUrl: null, statusCode: null,
+        screenshotPath: null, screenshotHash: null, screenshotWidth: null, screenshotHeight: null,
+        title: null, metaDescription: null, h1Texts: [], visibleText: null, visibleTextHash: null,
+        siteCategory: null, purposeSummary: null, language: null,
+        signals: [], riskLevel: null,
+        analysis: { hasLoginForm: false, hasPasswordInput: false, hasAdminHints: false, hasDefaultServerPage: false, hasErrorPage: false, isEmptyPage: false, linkCount: 0, formCount: 0, inputCount: 0, buttonCount: 0, detectedKeywords: [] },
+        aiVisualAnalysis: null,
+        checkedAt: '',
+      });
+
+      await runScan(mockPrisma as unknown as PrismaClient, makeJob('asset-1', 'run-1'));
+
+      expect(checkVisualAnalysis).toHaveBeenCalledTimes(1);
+      // IP'de skipped olduğu için persist çağrılmamalı
+      expect(persistVisualAnalysisRun).not.toHaveBeenCalled();
+    });
+
+    it('VISUAL_ANALYSIS snapshot visibleText 8000 char truncate edilir', async () => {
+      process.env.ENABLE_VISUAL_ANALYSIS = 'true';
+      (checkVisualAnalysis as jest.Mock).mockResolvedValue({
+        ...DOMAIN_CHECKS_OK.visual,
+        visibleText: 'x'.repeat(20_000),
+      });
+
+      await runScan(mockPrisma as unknown as PrismaClient, makeJob('asset-1', 'run-1'));
+
+      const calls = (mockPrisma.scanCheckResult.create as jest.Mock).mock.calls;
+      const visualCall = calls.find((c) => (c[0] as { data: { type: string } }).data.type === 'VISUAL_ANALYSIS');
+      const data = (visualCall![0] as { data: { dataJson: { visibleText: string } } }).data.dataJson;
+      expect(data.visibleText).toHaveLength(8_000);
     });
   });
 });

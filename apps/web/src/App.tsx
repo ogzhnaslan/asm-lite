@@ -14,6 +14,7 @@ import { RiskScoringPage } from './pages/knowledge/RiskScoringPage';
 import { ThreatIntelligencePage } from './pages/intelligence/ThreatIntelligencePage';
 import { ReputationCenterPage } from './pages/intelligence/ReputationCenterPage';
 import { PassiveLookupPage } from './pages/intelligence/PassiveLookupPage';
+import { VisualAnalysisPage } from './pages/VisualAnalysisPage';
 
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -37,6 +38,9 @@ export default function App() {
         <Route path="/intelligence/lookup" element={<ProtectedLayout><PassiveLookupPage /></ProtectedLayout>} />
         <Route path="/intelligence/threat" element={<ProtectedLayout><ThreatIntelligencePage /></ProtectedLayout>} />
         <Route path="/intelligence/reputation" element={<ProtectedLayout><ReputationCenterPage /></ProtectedLayout>} />
+
+        {/* Public Web Intelligence — AI Görsel Analiz */}
+        <Route path="/visual-analysis" element={<ProtectedLayout><VisualAnalysisPage /></ProtectedLayout>} />
 
         {/* Knowledge Base */}
         <Route path="/about" element={<ProtectedLayout><AboutPage /></ProtectedLayout>} />

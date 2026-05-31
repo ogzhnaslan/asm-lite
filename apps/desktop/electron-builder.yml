@@ -1,0 +1,60 @@
+appId: com.asm.platform
+productName: ASM Platform
+copyright: Copyright © 2026 ASM Platform
+
+# Native modül yok — pnpm + @electron/rebuild uyumsuzluğunu engelle.
+# (Hata: ENOENT @emnapi/core under .pnpm/node_modules)
+npmRebuild: false
+buildDependenciesFromSource: false
+nodeGypRebuild: false
+
+# Output: apps/desktop/release/ASM-Setup-<ver>.exe + unpacked dir
+directories:
+  output: release
+  buildResources: assets
+
+# Main process bundle — TS compiled to dist/, ayrıca package.json gerekli.
+# Web build (apps/web/dist) extraResources ile paketlenir, runtime'da
+# process.resourcesPath + '/web' altında erişilir.
+files:
+  - dist/**/*
+  - package.json
+  - "!**/{*.spec.ts,*.test.ts,tsconfig*.json,*.map}"
+
+extraResources:
+  - from: ../web/dist
+    to: web
+    filter:
+      - "**/*"
+
+# Windows hedefleri — iki output:
+#  1) NSIS installer (ASM-Setup-<ver>.exe) — kurulum + Start Menu + Desktop kısayolu
+#  2) Portable (ASM-Portable-<ver>.exe) — kurulum gerektirmez, tek dosya
+#
+# NOT: pnpm dist çalıştırıldığında electron-builder Windows codesign cache'i
+# extract etmek için 7z kullanır; arşivde darwin symlinks var ve Windows bunu
+# Developer Mode olmadan extract edemez. Kullanıcı için iki seçenek:
+#   (a) Settings → For Developers → Developer Mode ON  (one-time toggle)
+#   (b) Terminali "Yönetici olarak çalıştır"
+# Bu yapıldıktan sonra ilk dist build cache'i kurar; sonraki build'ler admin
+# gerektirmez.
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  artifactName: "ASM-${version}-${arch}.${ext}"
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ASM Platform
+
+# Build verisini küçültmek için asar default açık — sembolik OK.
+# Code signing imzasız demo için gerekli değil; CI'da sertifika ile yapılır.

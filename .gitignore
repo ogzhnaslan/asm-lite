@@ -41,6 +41,17 @@ pnpm-debug.log*
 prisma/.cache/
 
 # =========================
+# Visual Analysis smoke artifacts
+# =========================
+apps/worker/visual-smoke/
+apps/worker/*.err
+
+# =========================
+# Electron build outputs
+# =========================
+apps/desktop/release/
+
+# =========================
 # OS / IDE
 # =========================
 .vscode/

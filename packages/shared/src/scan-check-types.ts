@@ -12,6 +12,7 @@ export const SCAN_CHECK_TYPES = [
   'BREACH_EXPOSURE',
   'OTX_INTELLIGENCE',
   'SQLI_PROBE',
+  'VISUAL_ANALYSIS',
 ] as const;
 
 export type ScanCheckType = typeof SCAN_CHECK_TYPES[number];

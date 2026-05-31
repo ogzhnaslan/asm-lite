@@ -9,3 +9,8 @@ onlyBuiltDependencies:
   - '@nestjs/core'
   - '@prisma/engines'
   - prisma
+  # Electron postinstall — Chromium binary'sini AppData altına indirir.
+  - electron
+  - electron-builder
+  - app-builder-bin
+  - esbuild

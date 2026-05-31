@@ -12,6 +12,8 @@ import { QueueModule } from "./modules/queue/queue.module";
 import { ScanQueueModule } from "./modules/queue/scan-queue.module";
 import { AssistantModule } from "./modules/assistant/assistant.module";
 import { IntelligenceModule } from "./modules/intelligence/intelligence.module";
+import { VisualAnalysisModule } from "./modules/visual-analysis/visual-analysis.module";
+import { PublicVisualAnalysisModule } from "./modules/public-visual/public-visual.module";
 import { SqliTargetsModule } from "./modules/sqli-targets/sqli-targets.module";
 
 @Module({
@@ -32,6 +34,8 @@ import { SqliTargetsModule } from "./modules/sqli-targets/sqli-targets.module";
     AssistantModule,
     IntelligenceModule,
     SqliTargetsModule,
+    VisualAnalysisModule,
+    PublicVisualAnalysisModule,
   ],
   controllers: [AppController],
   providers: [

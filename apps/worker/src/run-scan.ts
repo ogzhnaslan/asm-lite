@@ -15,6 +15,9 @@ import { checkReputation } from './checks/reputation.check';
 import { checkBreachExposure } from './checks/breach.check';
 import { checkOtx } from './checks/otx.check';
 import { checkSqli } from './checks/sqli.check';
+import { checkVisualAnalysis } from './checks/visual.check';
+import { persistVisualAnalysisRun } from './checks/visual/visual-persistence';
+import type { VisualAnalysisResult } from './checks/visual/visual-types';
 import { processPortFindings } from './findings/port.findings';
 import { processTlsFindings } from './findings/tls.findings';
 import { processHttpFindings } from './findings/http.findings';
@@ -28,6 +31,7 @@ import { processReputationFindings } from './findings/reputation.findings';
 import { processBreachFindings } from './findings/breach.findings';
 import { processOtxFindings } from './findings/otx.findings';
 import { processSqliFindings } from './findings/sqli.findings';
+import { processVisualFindings } from './findings/visual.findings';
 import { analyzeFindings } from './ai/analyze';
 import type { ScanJobPayload, ScanJobResult } from '@asm/shared';
 
@@ -136,6 +140,7 @@ export async function runScan(
     breachResult,
     otxResult,
     sqliResult,
+    visualResult,
   ] = await Promise.all([
     safeCheck('ports', () => checkPorts(host),
       { checkedPorts: [], results: [], openPorts: [], error: 'CHECK_CRASHED' }),
@@ -194,6 +199,19 @@ export async function runScan(
       ? safeCheck('sqli', () => checkSqli(prisma, asset),
           { enabled: true, skipped: false, targetCount: 0, testedParams: 0, suspectedCount: 0, results: [], checkedAt: now(), error: 'CHECK_CRASHED' })
       : Promise.resolve({ enabled: false, skipped: true, skipReason: 'DISABLED' as const, targetCount: 0, testedParams: 0, suspectedCount: 0, results: [], checkedAt: now(), error: undefined as string | undefined }),
+
+    // Visual Website Analyzer — env-gated. checkVisualAnalysis kendi içinde
+    // NOT_DOMAIN / NOT_VERIFIED / INVALID_URL / PAGE_LOAD_FAILED guard'larını
+    // yapar, browser yaşam döngüsünü try/finally ile temizler. Bu yüzden burada
+    // sadece env kontrolü yapıyoruz; IP asset için NOT_DOMAIN result motor
+    // tarafından döner. Crash → safeCheck fallback ile error='CHECK_CRASHED'.
+    process.env.ENABLE_VISUAL_ANALYSIS === 'true'
+      ? safeCheck('visual', () => checkVisualAnalysis({
+          asset: { id: asset.id, value: asset.value, type: asset.type, status: asset.status },
+          screenshotDir: process.env.VISUAL_SCREENSHOT_DIR,
+        }),
+          { enabled: true as const, skipped: true as const, skipReason: 'PAGE_LOAD_FAILED' as const, assetValue: asset.value, url: null, finalUrl: null, statusCode: null, screenshotPath: null, screenshotHash: null, screenshotWidth: null, screenshotHeight: null, title: null, metaDescription: null, h1Texts: [], visibleText: null, visibleTextHash: null, siteCategory: null, purposeSummary: null, language: null, signals: [], riskLevel: null, analysis: { hasLoginForm: false, hasPasswordInput: false, hasAdminHints: false, hasDefaultServerPage: false, hasErrorPage: false, isEmptyPage: false, linkCount: 0, formCount: 0, inputCount: 0, buttonCount: 0, detectedKeywords: [] }, aiVisualAnalysis: null, checkedAt: now(), error: 'CHECK_CRASHED' })
+      : Promise.resolve<VisualAnalysisResult>({ enabled: false, skipped: true, skipReason: 'DISABLED', assetValue: asset.value, url: null, finalUrl: null, statusCode: null, screenshotPath: null, screenshotHash: null, screenshotWidth: null, screenshotHeight: null, title: null, metaDescription: null, h1Texts: [], visibleText: null, visibleTextHash: null, siteCategory: null, purposeSummary: null, language: null, signals: [], riskLevel: null, analysis: { hasLoginForm: false, hasPasswordInput: false, hasAdminHints: false, hasDefaultServerPage: false, hasErrorPage: false, isEmptyPage: false, linkCount: 0, formCount: 0, inputCount: 0, buttonCount: 0, detectedKeywords: [] }, aiVisualAnalysis: null, checkedAt: now() }),
   ]);
 
   // --------------------
@@ -284,6 +302,15 @@ export async function runScan(
     suspectedCount: sqliResult.suspectedCount,
     error: sqliResult.error,
   });
+  log('check:visual', {
+    status: visualResult.error === 'CHECK_CRASHED' ? 'crash' : visualResult.error ? 'err' : visualResult.skipped ? 'skip' : 'ok',
+    skipped: visualResult.skipped,
+    skipReason: visualResult.skipReason,
+    statusCode: visualResult.statusCode,
+    signals: visualResult.signals,
+    riskLevel: visualResult.riskLevel,
+    error: visualResult.error,
+  });
 
   // --------------------
   // Save snapshots — allSettled so a single DB hiccup doesn't abort the scan
@@ -324,6 +351,22 @@ export async function runScan(
   );
   snapshotOps.push(
     prisma.scanCheckResult.create({ data: { scanRunId: runId, type: 'SQLI_PROBE', dataJson: sqliResult as unknown as Prisma.InputJsonValue } }),
+  );
+
+  // VISUAL_ANALYSIS snapshot — visibleText 8000 char ile sınırlandırılır
+  // (persistence helper'la aynı limit). AI rawText 4000 char ile kırpılır.
+  // Diğer alanlar olduğu gibi.
+  const visualSnapshotPayload = {
+    ...visualResult,
+    visibleText: visualResult.visibleText && visualResult.visibleText.length > 8_000
+      ? visualResult.visibleText.slice(0, 8_000)
+      : visualResult.visibleText,
+    aiVisualAnalysis: visualResult.aiVisualAnalysis && visualResult.aiVisualAnalysis.rawText && visualResult.aiVisualAnalysis.rawText.length > 4_000
+      ? { ...visualResult.aiVisualAnalysis, rawText: visualResult.aiVisualAnalysis.rawText.slice(0, 4_000) }
+      : visualResult.aiVisualAnalysis,
+  };
+  snapshotOps.push(
+    prisma.scanCheckResult.create({ data: { scanRunId: runId, type: 'VISUAL_ANALYSIS', dataJson: visualSnapshotPayload as unknown as Prisma.InputJsonValue } }),
   );
 
   const snapResults = await Promise.allSettled(snapshotOps);
@@ -371,6 +414,23 @@ export async function runScan(
     ['otx', () => processOtxFindings(prisma, { asset, scanRunId: runId, current: otxResult })],
     ['sqli', () => processSqliFindings(prisma, { asset, scanRunId: runId, sqliResult })],
   ];
+
+  // VisualAnalysisRun DB kaydı — sadece visual check gerçekten çalıştıysa
+  // (skipped/error değilse). visualRunId finding processor'a dataJson içine
+  // geçer (screenshotUrlHint üretmek için). Hata izole — scan devam eder.
+  let visualRunId: string | null = null;
+  if (!visualResult.skipped && !visualResult.error) {
+    try {
+      const run = await persistVisualAnalysisRun(prisma, { assetId: asset.id, visualResult });
+      visualRunId = (run as { id: string }).id;
+      log('visual run persisted', { visualRunId });
+    } catch (err) {
+      log('visual run persist failed', { error: (err as Error).message ?? String(err) });
+    }
+  }
+  findingTasks.push(
+    ['visual', () => processVisualFindings(prisma, { asset, scanRunId: runId, visualResult, visualRunId })],
+  );
 
   if (isDomain) {
     findingTasks.push(

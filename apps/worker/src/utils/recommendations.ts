@@ -585,6 +585,129 @@ export function forTlsChange(changes: Record<string, boolean>): Recommendation {
   };
 }
 
+export type VisualSignalKey =
+  | 'LOGIN_PANEL_VISIBLE'
+  | 'ADMIN_PANEL_VISIBLE'
+  | 'DEFAULT_SERVER_PAGE_VISIBLE'
+  | 'ERROR_PAGE_VISIBLE'
+  | 'EMPTY_PAGE_DETECTED';
+
+export function forVisualSignal(args: {
+  signal: VisualSignalKey;
+  url: string | null;
+  title: string | null;
+  siteCategory: string | null;
+  signals: readonly string[];
+  detectedKeywords: readonly string[];
+}): Recommendation {
+  const allSignals = args.signals.join(', ');
+  const detectedKw = args.detectedKeywords.slice(0, 5).join(', ');
+  const urlHint = args.url ?? '(unknown)';
+
+  switch (args.signal) {
+    case 'LOGIN_PANEL_VISIBLE':
+      return {
+        summary: 'Kamuya açık sayfada giriş paneli veya parola alanı izleri görüldü.',
+        reasons: [
+          `Hedef URL: ${urlHint}`,
+          'Sayfada password input veya login/giriş/sign in dili tespit edildi.',
+          args.title ? `Sayfa başlığı: "${args.title}"` : null,
+        ].filter((x): x is string => !!x),
+        impact:
+          'Bu bulgu görsel/DOM tabanlı bir sinyaldir; kesin bir güvenlik açığı kanıtı değildir. ' +
+          'Bir giriş panelinin internete açık olması başlı başına zafiyet değildir ancak yetkisiz erişim ' +
+          'denemelerinin (brute-force, credential stuffing) odak noktası olabilir.',
+        recommendations: [
+          'Bu giriş ekranının arkasında ek bir koruma (IP whitelist, VPN, 2FA, rate limit) olduğundan emin olun.',
+          'Brute-force koruması ve account lockout politikası aktif olmalı.',
+          'Gereksizse giriş panelini iç ağ veya VPN arkasına alın.',
+          'Bu URL\'i manuel olarak inceleyerek meşru bir kullanıcı girişi mi yoksa unutulmuş bir test/admin sayfası mı olduğunu doğrulayın.',
+        ],
+      };
+
+    case 'ADMIN_PANEL_VISIBLE':
+      return {
+        summary: 'Sayfada admin / dashboard / yönetim arayüzü çağrışımı yapan ifadeler tespit edildi.',
+        reasons: [
+          `Hedef URL: ${urlHint}`,
+          detectedKw ? `Eşleşen anahtar kelimeler: ${detectedKw}` : null,
+          args.title ? `Sayfa başlığı: "${args.title}"` : null,
+          allSignals !== 'ADMIN_PANEL_VISIBLE' ? `Birlikte gözlenen sinyaller: ${allSignals}` : null,
+        ].filter((x): x is string => !!x),
+        impact:
+          'Bu bulgu görsel/DOM tabanlı bir sinyaldir; sayfada gerçekten bir yönetim paneli olup olmadığı ' +
+          'manuel doğrulama gerektirir. Eğer yönetim paneli gerçekten internete açıksa, yetkisiz ' +
+          'kimlik denemelerine, açık panel keşfine veya bilinen CMS/panel zafiyetlerine maruz kalabilir.',
+        recommendations: [
+          'Bu URL\'i tarayıcıda manuel olarak ziyaret ederek gerçekten yönetim paneli olup olmadığını doğrulayın.',
+          'Yönetim panelleri internete açık olmamalı — iç ağ / VPN / IP whitelist arkasına alın.',
+          'Panel görünür kalmak zorundaysa MFA, rate-limit ve güçlü oturum politikası uygulayın.',
+          'Sayfa robots.txt veya search engine indekslemesi ile ifşa oluyorsa noindex kuralı ekleyin.',
+        ],
+      };
+
+    case 'DEFAULT_SERVER_PAGE_VISIBLE':
+      return {
+        summary: 'Varsayılan sunucu / hosting sayfası izleri tespit edildi.',
+        reasons: [
+          `Hedef URL: ${urlHint}`,
+          detectedKw ? `Eşleşen anahtar kelimeler: ${detectedKw}` : null,
+          args.title ? `Sayfa başlığı: "${args.title}"` : null,
+        ].filter((x): x is string => !!x),
+        impact:
+          'Sayfa Apache/Nginx/IIS/cPanel/Plesk gibi sunucu yazılımının kurulu olduğu ama henüz bir site ' +
+          'içeriği yayınlanmamış izlenimi veriyor. Bu durum sunucu kurulu+yapılandırma eksik bir kaynağın ' +
+          'unutulmuş veya ihmal edilmiş olabileceğine işaret eder.',
+        recommendations: [
+          'Bu sunucu gerçekten kullanılıyor mu, hangi servisi sunması bekleniyor — doğrulayın.',
+          'Eğer asset kullanım dışıysa DNS kaydını / sunucuyu kapatın (attack surface azaltma).',
+          'Eğer aktif kullanılacaksa varsayılan sayfayı kaldırıp gerçek içerik yayınlayın; varsayılan sayfalar saldırgan için keşif sinyalidir.',
+          'Sunucu yazılımının güncel olduğundan emin olun (default page sürüm/banner sızdırabilir).',
+        ],
+      };
+
+    case 'ERROR_PAGE_VISIBLE':
+      return {
+        summary: 'Kamuya açık sayfada hata ekranı veya teknik hata mesajı izleri tespit edildi.',
+        reasons: [
+          `Hedef URL: ${urlHint}`,
+          detectedKw ? `Eşleşen anahtar kelimeler: ${detectedKw}` : null,
+          args.title ? `Sayfa başlığı: "${args.title}"` : null,
+          allSignals !== 'ERROR_PAGE_VISIBLE' ? `Birlikte gözlenen sinyaller: ${allSignals}` : null,
+        ].filter((x): x is string => !!x),
+        impact:
+          'Sayfa kullanıcıya 403/404/500 gibi hata mesajları veya veritabanı/uygulama hatası izleri ' +
+          'döndürüyor olabilir. Hata mesajları stack trace, sürüm veya iç path bilgisi sızdırırsa ' +
+          'saldırgan için keşif değeri taşır. Ayrıca site genel olarak bozuk durumda olabilir.',
+        recommendations: [
+          'Bu URL\'i tarayıcıda ziyaret ederek hatanın gerçek olup olmadığını ve içeriğini doğrulayın.',
+          'Üretimde detaylı hata mesajları gösterilmemeli — generic error page kullanın.',
+          'Stack trace, dosya path\'i, sürüm bilgisi gibi teknik detaylar yanıt body\'sinden temizlenmeli.',
+          'Hata sürekliyse uygulama veya altyapı sorununu çözün; sürekli hata erişilebilirlik sorunudur.',
+        ],
+      };
+
+    case 'EMPTY_PAGE_DETECTED':
+      return {
+        summary: 'Sayfa içeriği çok az görünüyor; boş veya eksik yayın ihtimali olabilir.',
+        reasons: [
+          `Hedef URL: ${urlHint}`,
+          'Görünür metin / link / input sayıları boş sayfa eşiklerinin altında.',
+          args.title ? `Sayfa başlığı: "${args.title}"` : null,
+        ].filter((x): x is string => !!x),
+        impact:
+          'Bu bulgu kesin bir güvenlik açığı kanıtı değildir; sadece sayfanın boş veya yarım yayın durumda ' +
+          'olabileceğini gösterir. Unutulmuş veya parking durumdaki asset\'ler attack surface büyütür ' +
+          've takipçisiz kalabilir.',
+        recommendations: [
+          'Bu URL gerçekten kullanılıyor mu doğrulayın; kullanılmıyorsa asset envanterinden çıkarın.',
+          'Eğer site geliştirme aşamasındaysa erişimi VPN/IP whitelist arkasına alın.',
+          'Boş sayfa SPA loading durumu olabilir — manuel ziyaret edip JavaScript ile sonradan render olup olmadığını kontrol edin.',
+        ],
+      };
+  }
+}
+
 export function forSqliSuspected(args: {
   path: string;
   param: string;

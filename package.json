@@ -4,7 +4,10 @@
   "scripts": {
     "dev:api": "pnpm --filter api start:dev",
     "dev:worker": "pnpm --filter worker dev",
-    "dev:web": "pnpm --filter @asm/web dev"
+    "dev:web": "pnpm --filter @asm/web dev",
+    "desktop:dev": "pnpm --filter desktop dev:vite",
+    "desktop:build": "pnpm --filter @asm/web build && pnpm --filter desktop build",
+    "desktop:dist": "pnpm --filter desktop dist"
   },
   "pnpm": {
     "overrides": {

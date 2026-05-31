@@ -36,8 +36,9 @@ model User {
   password  String
   createdAt DateTime @default(now())
 
-  assets              Asset[]
-  passiveLookupRuns   PassiveLookupRun[]
+  assets                   Asset[]
+  passiveLookupRuns        PassiveLookupRun[]
+  publicVisualAnalysisRuns PublicVisualAnalysisRun[]
 }
 
 model PassiveLookupRun {
@@ -76,10 +77,11 @@ model Asset {
   scanInterval String      @default("24h") // 1h | 6h | 24h | 7d
   createdAt    DateTime    @default(now())
 
-  verifications AssetVerification[]
-  scanRuns       ScanRun[]
-  findings       Finding[]
-  sqliTargets    SqliTarget[]
+  verifications      AssetVerification[]
+  scanRuns           ScanRun[]
+  findings           Finding[]
+  sqliTargets        SqliTarget[]
+  visualAnalysisRuns VisualAnalysisRun[]
 
   @@index([userId])
   @@index([status])
@@ -175,4 +177,98 @@ model SqliTarget {
 
   @@index([assetId])
   @@index([assetId, enabled])
+}
+
+model VisualAnalysisRun {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  url        String
+  finalUrl   String?
+  statusCode Int?
+
+  screenshotPath   String?
+  screenshotHash   String?
+  screenshotWidth  Int?
+  screenshotHeight Int?
+
+  title           String?
+  metaDescription String?
+  h1TextsJson     Json?
+  visibleText     String?  @db.Text
+  visibleTextHash String?
+
+  siteCategory   String?
+  purposeSummary String?  @db.Text
+  language       String?
+
+  signalsJson  Json?
+  analysisJson Json?
+  riskLevel    String?
+
+  error String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([assetId, createdAt])
+  @@index([url])
+}
+
+// Public Web Intelligence — verified asset gerektirmeyen, kullanıcının girdiği
+// public URL üzerinde tek seferlik screenshot + AI görsel analiz. Tarama veya
+// finding üretmez; sadece görsel açıklama.
+model PublicVisualAnalysisRun {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Kullanıcının girdiği URL — normalize edilmiş (http/https zorunlu).
+  url        String
+  finalUrl   String?
+  statusCode Int?
+
+  // Hayat döngüsü: RUNNING → DONE (veya FAILED).
+  // Frontend polling bu alana göre döngüsünü bitirir.
+  status String @default("RUNNING") // RUNNING | DONE | FAILED
+
+  // Screenshot diske yazılır; path Worker tarafından doldurulur. Bu alan
+  // dolduğunda frontend "AI henüz hazırlanıyor ama screenshot var" durumunu
+  // göstererek staged UX'i mümkün kılar.
+  screenshotPath   String?
+  screenshotHash   String?
+  screenshotWidth  Int?
+  screenshotHeight Int?
+
+  // DOM özet alanları (rule-based analiz için kullanılır)
+  title           String?
+  metaDescription String?
+  h1TextsJson     Json?
+  visibleText     String?  @db.Text
+  visibleTextHash String?
+
+  // Rule-based çıktı (worker tarafından doldurulur)
+  ruleSiteCategory   String?
+  rulePurposeSummary String?  @db.Text
+  ruleLanguage       String?
+  ruleSignalsJson    Json?
+  ruleRiskLevel      String?
+
+  // AI vision çıktısı — tam AiVisualAnalysisResult JSON'u.
+  // sitePurpose/siteCategory/visualSummary/userFacingDescription/pageTone/
+  // targetAudience/confidence/visibleElements/securitySignals/recommendations
+  // burada saklanır. Boş gelirse status'tan ayırt edilir.
+  aiVisualAnalysisJson Json?
+
+  // Hata: backend tarafında uçtan uca yumuşak başarısızlık. Job processor
+  // throw etmek yerine bu alanı doldurur ve status='FAILED' yapar.
+  error String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  finishedAt  DateTime?
+
+  @@index([userId, createdAt])
+  @@index([status])
 }

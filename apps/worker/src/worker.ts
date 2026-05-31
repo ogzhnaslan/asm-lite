@@ -14,7 +14,16 @@ import { PrismaPg } from '@prisma/adapter-pg';
 
 import { log } from './utils/logger';
 import { runScan } from './run-scan';
+import { runPublicVisualAnalysis } from './run-public-visual';
 import type { ScanJobPayload } from '@asm/shared';
+
+// Public visual analyze job payload — verified asset gerektirmediği için
+// ScanJobPayload'dan ayrı. ScanJobPayload assetId zorunlu; bu payload sadece
+// (runId, url) taşır.
+interface PublicVisualJobPayload {
+  runId: string;
+  url: string;
+}
 
 // --------------------
 // Bootstrap
@@ -53,21 +62,31 @@ log('env check', {
 interface BullJob {
   id?: string;
   name: string;
-  data: ScanJobPayload;
+  data: ScanJobPayload | PublicVisualJobPayload;
   attemptsMade: number;
   opts: { attempts?: number };
 }
 
 const worker = new Worker('scan', async (job: BullJob) => {
+  // Public Web Intelligence — verified asset bağımsız tek seferlik analiz.
+  // Bu dal scan akışından tamamen ayrı; failure DB row'da yumuşak işlenir,
+  // job'un kendisi throw etmez (retry zincirini tetiklemez).
+  if (job.name === 'visual.public.analyze') {
+    const data = job.data as PublicVisualJobPayload;
+    await runPublicVisualAnalysis(prisma, { runId: data.runId, url: data.url });
+    return { ok: true, runId: data.runId };
+  }
+
   if (job.name !== 'scan.run') {
     log('unknown job name, skipping', { name: job.name, jobId: job.id });
     return { ok: false, reason: 'UNKNOWN_JOB_NAME' };
   }
 
-  const { scanRunId } = job.data;
+  const scanData = job.data as ScanJobPayload;
+  const { scanRunId } = scanData;
 
   try {
-    return await runScan(prisma, job);
+    return await runScan(prisma, { name: job.name, data: scanData });
   } catch (err) {
     if (scanRunId) {
       try {
@@ -115,7 +134,7 @@ worker.on('failed', async (job: BullJob | undefined, err: Error) => {
 
       log('job moved to DLQ', {
         jobId: job.id,
-        assetId: job.data.assetId,
+        assetId: 'assetId' in job.data ? job.data.assetId : undefined,
       });
     } catch (dlqErr) {
       log('DLQ enqueue failed', {

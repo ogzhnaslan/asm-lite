@@ -1,0 +1,3 @@
+# İkonlar buraya koyulur: icon.ico (Windows), icon.png (genel).
+# electron-builder buildResources: assets ayarıyla otomatik tanır.
+# Dosya yoksa Electron default ikonu kullanılır — build patlamaz.
