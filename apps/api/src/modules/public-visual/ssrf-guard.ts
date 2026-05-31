@@ -121,15 +121,21 @@ export async function normalizePublicUrl(
   }
 
   // IP literal ise doğrudan blocklist kontrolü; DNS lookup gereksiz.
-  if (net.isIP(hostname)) {
-    if (checkIpAgainstBlocklists(hostname)) {
-      throw new SsrfRejection('PRIVATE_IP_BLOCKED', `IP ${hostname} is in a blocked range`);
+  // IPv6 literal'ler URL.hostname'de köşeli parantezle gelir ("[::1]") ve
+  // net.isIP bunları tanımaz → parantezi soyup gerçek IP'yi kontrol ediyoruz.
+  // (Aksi halde [::1]/[fe80::1] DNS yoluna düşer; Linux'ta DNS_RESOLUTION_FAILED,
+  // Windows'ta PRIVATE_IP_BLOCKED döner — platforma bağımlı, deterministik değil.)
+  const ipLiteral =
+    hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+  if (net.isIP(ipLiteral)) {
+    if (checkIpAgainstBlocklists(ipLiteral)) {
+      throw new SsrfRejection('PRIVATE_IP_BLOCKED', `IP ${ipLiteral} is in a blocked range`);
     }
     return {
       url: parsed.toString(),
       hostname,
       port: parsed.port ? Number(parsed.port) : null,
-      resolvedIps: [hostname],
+      resolvedIps: [ipLiteral],
     };
   }
 
