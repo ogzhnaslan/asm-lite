@@ -1,6 +1,7 @@
 # ASM — Attack Surface Monitoring
 
 > **Bu dosya projeyi anlamak için birincil kaynak.** Her değişiklik sonrası güncel tutulmalı.
+> Son güncelleme: 2026-05-31 — **Dokümantasyon senkronizasyonu (audit).** 2026-05-22 → 2026-05-31 arasında eklenen ve belgelenmemiş 3 büyük özellik + altyapı CLAUDE.md'ye işlendi: **(1) SQL Injection Probe** (`SQLI_PROBE` check + `SQL_INJECTION_SUSPECTED` finding + `/assets/:id/sqli-targets` CRUD API + frontend SqliTargetsManager/SqliLivePanel) — env-gated (`ENABLE_SQLI_CHECK`), sadece VERIFIED+DOMAIN, kullanıcının açıkça eklediği `SqliTarget` kayıtları üzerinden, max 5 hedef, rate-limit, destructive-olmayan payload. **(2) Visual Website Analyzer** (`VISUAL_ANALYSIS` check + 6 finding: `VISUAL_CHANGE_DETECTED`, `LOGIN_PANEL_VISIBLE`, `ADMIN_PANEL_VISIBLE`, `DEFAULT_SERVER_PAGE_VISIBLE`, `ERROR_PAGE_VISIBLE`, `EMPTY_PAGE_DETECTED` — `VISUAL_CHANGE_DETECTED` tip olarak tanımlı ama henüz işlenmiyor) — Playwright screenshot + DOM çıkarımı + rule-based sinyal + opsiyonel Ollama vision (llava) AI yorum; `/assets/:id/visual-analysis` list/detail/screenshot API. **(3) Public Web Intelligence** (`/visual-analysis/public`) — verified asset gerektirmeyen, SSRF-guard'lı kullanıcı URL'i screenshot+AI analizi (`PublicVisualAnalysisRun`, worker `visual.public.analyze` job'u). Ayrıca: **Electron desktop app** (`apps/desktop`), yeni Prisma modelleri (`SqliTarget`, `VisualAnalysisRun`, `PublicVisualAnalysisRun`), 4 yeni migration, finding tipi sayısı **27→35**, scan check tipi **12→14**. Bu girişle birlikte aşağıdaki bölümler de düzeltildi: shared tablosu, Tarama Motoru check listesi (11→14), finding tablosu, Veritabanı Şeması (Finding.aiScore/aiWhyJson **zorunlu**, nullable değil), Migration tablosu, API Referansı, Kod Stili (API tsconfig tam strict **değil**).
 > Son güncelleme: 2026-05-22 — Sprint 1B: TLS protokol/cipher ve chain validation raporlanabilirliği. **`TlsCheckResult` interface'ine 4 opsiyonel alan eklendi** (`protocol`, `cipher: { name, standardName?, version?, bits? }`, `authorized`, `authorizationError`); `secureConnect` event'i içinde `socket.getProtocol()`, `socket.getCipher()`, `socket.authorized`, `socket.authorizationError` okunup string/code'a çevriliyor. `rejectUnauthorized: false` aynı kaldı — chain validation hatası varsa bağlantı yine kurulur, hata `authorizationError` alanında raporlanır, scan **patlamaz**. `TLS_INFO` snapshot otomatik genişledi; `_processExpiry` `TLS_EXPIRING` finding dataJson'una bu 4 alanı **opsiyonel** olarak ekledi (eski snapshot'larda yoksa alanlar dataJson'a hiç yazılmaz — geriye uyumlu). Frontend: **yeni `TlsFindingDetails.tsx`** component'i (PortFindingDetails pattern'i) — TLS_CHECK için hata kartı, TLS_EXPIRING için sertifika+protokol/cipher+chain validation panelleri, TLS_CHANGE için önceki vs mevcut karşılaştırma. AssetDetailPage'e koşullu render + FindingCard kapalı görünüm için kısa özet satırı eklendi. **Severity, aiScore, finding üretme mantığı, recommendations.ts, findingDisplay.ts, FINDING_META, shared package, Prisma schema, API dokunulmadı.** Yeni finding tipi (TLS_WEAK_PROTOCOL / TLS_CHAIN_INVALID) **eklenmedi** — Sprint 1C'ye bırakıldı. **Worker testleri: 403/403 PASS (önceki 400, +3 yeni TLS test). Sprint 1A regresyon: 48/48 PASS. Web build: ✓.**
 > Son güncelleme: 2026-05-22 — Stale Test Update: PhishTank ve Reputation spec dosyaları mevcut business logic'e uyumlu hale getirildi. Worker runtime/business logic değişmedi. **Full worker suite: 400/400 PASS (önceki 390/411, 21 fail). Sprint 1A regresyon: 48/48 PASS.** Değişiklikler: (1) `phishtank.check.spec.ts` — "DISABLED only on env=false/0/no" + "undefined/credentials yok → default public feed kullanılır" senaryolarına güncellendi; eski "undefined → DISABLED" ve "credentials yok → NO_CREDENTIALS" stale beklentileri kaldırıldı; result shape testi explicit `ENABLE_PHISHTANK=false` ile yeniden yazıldı. (2) `reputation.check.spec.ts` — `IP asset — AbuseIPDB` describe (11 test) ve `AbuseIPDB category normalization` describe (6 test) tamamen kaldırıldı (AbuseIPDB kod tarafında zaten silinmiş); yerine 4 testlik `IP asset — URLhaus-only mode` describe eklendi (skipped=`IP_NOT_SUPPORTED_BY_URLHAUS_ONLY_MODE`, fetch çağrılmaz, providers=[], assetType/Value korunur); URLhaus `Auth-Key` header testleri tek "Auth-Key gönderilmez + Content-Type/User-Agent doğrula" testine konsolide edildi (kod URLHAUS_API_KEY okumuyor); URLhaus HTTP 401 testi `URLHAUS_KEY_REQUIRED` → `HTTP_401` olarak güncellendi; anlamsız ABUSEIPDB_API_KEY result-shape testi ve kullanılmayan `ABUSE_KEY`/`abuseIPDBResponse` helper'ları temizlendi. Net: -11 fail, +0 fail, toplam test 411 → 400 (stale silinen 14 test 6 yeni meaningful testle dengelenmedi — kullanıcı onayıyla FAIL=0 öncelikli, test sayısı değil).
 > Son güncelleme: 2026-05-22 — Worker test izolasyonu: **`apps/worker/jest.setup.ts`** eklendi (Jest `setupFiles` ile bağlandı). Geliştirme makinesindeki `apps/worker/.env`'de set olan dış servis env'leri (ENABLE_PHISHTANK, PHISHTANK_FEED_URL/API_KEY, ENABLE_REPUTATION, ABUSEIPDB_API_KEY, URLHAUS_API_KEY, OTX_API_KEY, ENABLE_BREACH, HIBP_API_KEY, LEAKCHECK_API_KEY, BREACH_PROVIDER, ENABLE_PWNED_PASSWORD_CHECK) test sürecinde sıfırlanır; run-scan default 12-check senaryosu için `ENABLE_OTX_IN_VERIFIED_SCANS='true'` set edilir. Production/dev runtime davranışı değişmedi — `dotenv.config` worker.ts boot anında çalışmaya devam ediyor, jest setup yalnızca `pnpm test` sırasında etkin. Spec dosyalarına ve runtime'a dokunulmadı. Full suite 411 testten **390 PASS, 21 FAIL** (önceki 388/23). Kalan 21 fail business logic ile uyumsuz stale testler: `phishtank.check.spec.ts` 3 (kod public-feed-by-default davranışına geçti, test DISABLED bekliyor), `reputation.check.spec.ts` 18 (kod AbuseIPDB'yi tamamen kaldırıp URLhaus-only moda geçti, test hâlâ AbuseIPDB yolunu test ediyor). Bu testler env pollution değil — ayrı bir "stale test update" sprintinde ele alınmalı.
@@ -91,13 +92,15 @@ e:/Projects/asm/
 ├── apps/
 │   ├── api/            # NestJS REST API + Prisma ORM
 │   ├── web/            # React 18 + Vite + Tailwind UI
-│   └── worker/         # BullMQ job worker (tarama motoru)
+│   ├── worker/         # BullMQ job worker (tarama motoru + Playwright görsel analiz)
+│   └── desktop/        # Electron masaüstü shell (web UI'yi sarar; backend ayrı çalışır)
 ├── packages/
 │   └── shared/         # Ortak TypeScript tipleri ve sabitler
 ├── pnpm-workspace.yaml # Workspace tanımı
-├── package.json        # Root scripts
+├── package.json        # Root scripts (dev:api/worker/web + desktop:dev/build/dist)
 ├── docker-compose.yml  # PostgreSQL + Redis dev servisleri
 ├── start.bat           # Windows hızlı başlatma scripti
+├── start-desktop.bat   # Electron desktop başlatma scripti
 └── CLAUDE.md           # Bu dosya
 ```
 
@@ -178,7 +181,24 @@ ANTHROPIC_MODEL=claude-haiku-4-5-20251001
 
 # Opsiyonel: n8n webhook bildirimleri
 N8N_WEBHOOK_URL=
+
+# SQLi probe (kontrollü, manuel hedef tabanlı)
+ENABLE_SQLI_CHECK=false
+SQLI_REQUEST_DELAY_MS=200
+
+# Görsel analiz (Playwright + opsiyonel Ollama vision)
+ENABLE_VISUAL_ANALYSIS=false
+VISUAL_SCREENSHOT_DIR=./visual-smoke
+ENABLE_VISUAL_AI=false
+VISUAL_AI_PROVIDER=ollama
+VISUAL_AI_BASE_URL=http://localhost:11434
+VISUAL_AI_MODEL=llava:latest
+VISUAL_AI_TIMEOUT_MS=30000
+
+# OTX'in verified scan içinde de çalışması (default false → sadece passive lookup)
+ENABLE_OTX_IN_VERIFIED_SCANS=false
 ```
+> **Tam ve güncel env listesi için `apps/worker/.env.example` birincil kaynaktır** (PhishTank, Reputation, Breach, OTX, GeoIP dahil tüm açıklamalı değişkenler orada).
 
 **apps/web/.env**
 ```
@@ -216,10 +236,9 @@ Tüm app'ler arası paylaşılan TypeScript tipleri ve sabitler. **Değişiklik 
 | Dosya | İçerik |
 |-------|--------|
 | `asset-types.ts` | `ASSET_TYPES`, `AssetStatus` |
-| `finding-types.ts` | `FindingTypes` (8 tip) |
 | `job-types.ts` | `ScanJobPayload`, `ScanJobResult` |
-| `scan-check-types.ts` | `SCAN_CHECK_TYPES` (`PORTS`, `TLS_INFO`, `HTTP_HEALTH`, `SECURITY_HEADERS`, `DNS_RECORDS`, `RDAP_INFO`, `GEOIP_INFO`, `ROBOTS_TXT`, `PHISHTANK_REPUTATION`, `MALICIOUS_REPUTATION`, `BREACH_EXPOSURE`, `OTX_INTELLIGENCE`), `SCAN_STATUS` |
-| `finding-types.ts` | `FindingTypes` (27 tip — port×2, tls×3, http×2, security_header×1, dns×8, whois×2, geoip×2, robots×2, phishing×1, reputation×1, breach×1, otx×2) |
+| `scan-check-types.ts` | `SCAN_CHECK_TYPES` (14: `PORTS`, `TLS_INFO`, `HTTP_HEALTH`, `SECURITY_HEADERS`, `DNS_RECORDS`, `RDAP_INFO`, `GEOIP_INFO`, `ROBOTS_TXT`, `PHISHTANK_REPUTATION`, `MALICIOUS_REPUTATION`, `BREACH_EXPOSURE`, `OTX_INTELLIGENCE`, `SQLI_PROBE`, `VISUAL_ANALYSIS`), `SCAN_STATUS` |
+| `finding-types.ts` | `FindingTypes` (35 tip — port×2, tls×3, http×2, security_header×1, dns×8, whois×2, geoip×2, robots×2, phishing×1, reputation×1, breach×1, otx×2, sqli×1, visual×6) |
 | `scan-intervals.ts` | `SCAN_INTERVALS` (`1h`, `6h`, `24h`, `7d`) |
 | `severities.ts` | `SEVERITIES` (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) |
 
@@ -274,11 +293,12 @@ Job alındı (ScanJobPayload: assetId, scanRunId?)
   ├─ Asset ve status doğrula
   ├─ ScanRun kaydı oluştur / RUNNING'e güncelle
   │
-  ├─ 11 check paralel çalıştır (safeCheck wrapper ile) ─────┐
+  ├─ 14 check paralel çalıştır (safeCheck wrapper ile) ─────┐
   │   checkPorts / checkTls / checkHttp                     │
   │   checkSecurityHeaders / checkDnsRecords / checkRdap    │
   │   checkGeoIp / checkRobotsTxt / checkPhishTank          │
   │   checkReputation / checkBreachExposure / checkOtx      │
+  │   checkSqli / checkVisualAnalysis                       │
   │   → Crash durumunda fallback result döner, scan devam   │
   │                                                         │
   ├─ Snapshot'ları kaydet (Promise.allSettled)  ◄───────────┘
@@ -293,6 +313,8 @@ Job alındı (ScanJobPayload: assetId, scanRunId?)
   │   processWhoisFindings / processGeoIpFindings
   │   processRobotsFindings / processPhishTankFindings
   │   processReputationFindings / processBreachFindings
+  │   processOtxFindings / processSqliFindings / processVisualFindings
+  │   (visual: önce persistVisualAnalysisRun ile DB kaydı, sonra finding)
   │
   ├─ AI analizi (SECURITY_HEADER_MISSING hariç aktif finding'ler)
   │   analyzeFindings → aiScore + aiWhyJson
@@ -438,6 +460,27 @@ Job alındı (ScanJobPayload: assetId, scanRunId?)
 | Referrer-Policy | LOW | 25 |
 | Permissions-Policy | LOW | 25 |
 
+**checkSqli** (`checks/sqli.check.ts` + `checks/sqli/{payloads,detectors,sqli-fetch}.ts`)
+- **Manuel hedef tabanlı, kontrollü SQL injection probe** — otomatik keşif yok; yalnızca kullanıcının açıkça eklediği `SqliTarget` kayıtlarını test eder
+- Guard zinciri: `ENABLE_SQLI_CHECK=true` (env) **ve** asset `DOMAIN` **ve** asset `VERIFIED` — biri eksikse `skipped` (`DISABLED` / `NOT_DOMAIN` / `NOT_VERIFIED` / `NO_TARGETS`)
+- `MAX_TARGETS_DEFENSIVE = 5` hedef sınırı; istek arası `SQLI_REQUEST_DELAY_MS` (default 200ms) rate-limit
+- Sadece `GET` method; payload kategorileri: error-based, boolean_true/boolean_false, 5xx tetikleyici — **veri dump / login bypass / destructive payload yok**
+- Sinyaller: `SQL_ERROR_PATTERN`, `STATUS_CODE_CHANGED`, `STATUS_CODE_5XX`, `BODY_LENGTH_DELTA`, `BOOLEAN_TRUE_FALSE_DELTA`
+- `SQL_ERROR_PATTERN` bulunursa payload bir kez daha denenir (`confirmed`); body/status dalgalanması tek başına confirm saymaz
+- Risk: `computeRisk()` sinyal+confirmed kombinasyonundan LOW/MEDIUM/HIGH/CRITICAL üretir
+- Dönüş: `SqliCheckResult { enabled, skipped, skipReason?, targetCount, testedParams, suspectedCount, results[], checkedAt, error? }`
+
+**checkVisualAnalysis** (`checks/visual.check.ts` + `checks/visual/{screenshot,dom-extract,rule-analyzer,ai-visual-analyzer,visual-persistence}.ts`)
+- **Playwright (chromium) ile screenshot + DOM çıkarımı + rule-based sinyal + opsiyonel AI vision**
+- Guard: `ENABLE_VISUAL_ANALYSIS=true`; sadece VERIFIED+DOMAIN; `NOT_DOMAIN` / `NOT_VERIFIED` / `INVALID_URL` / `PAGE_LOAD_FAILED` skip/error nedenleri
+- Çalıştırmadan önce: `pnpm --filter worker exec playwright install chromium`
+- Screenshot diske yazılır (`VISUAL_SCREENSHOT_DIR`, default `os.tmpdir()/asm-visual-screenshots`); path traversal koruması bu root ile sınırlı
+- DOM özet: title, metaDescription, h1, visibleText (8000 char ile kırpılır), formCount/inputCount/linkCount, detectedKeywords
+- Rule-based sinyaller (finding üretir): `LOGIN_PANEL_VISIBLE`, `ADMIN_PANEL_VISIBLE`, `DEFAULT_SERVER_PAGE_VISIBLE`, `ERROR_PAGE_VISIBLE`, `EMPTY_PAGE_DETECTED`
+- AI vision (opsiyonel, `ENABLE_VISUAL_AI=true`): Ollama `llava` modeline screenshot gönderilir → sitePurpose/visualSummary/securitySignals/riskLevel; AI hatası check'i/scan'i **patlatmaz** (`aiVisualAnalysis.error` alanına yazılır)
+- Visual check gerçekten çalıştıysa (`!skipped && !error`) `persistVisualAnalysisRun` ile `VisualAnalysisRun` tablosuna kayıt; `visualRunId` finding dataJson'ına `screenshotUrlHint` üretmek için geçer
+- Dönüş: `VisualAnalysisResult { enabled, skipped, skipReason?, url, finalUrl, statusCode, screenshotPath/Hash/Width/Height, title, visibleText, siteCategory, signals[], riskLevel, analysis{...}, aiVisualAnalysis, checkedAt, error? }`
+
 #### Finding Tipleri
 
 | Tip | Kaynak | Açıklama |
@@ -469,6 +512,15 @@ Job alındı (ScanJobPayload: assetId, scanRunId?)
 | `BREACH_EXPOSURE_DETECTED` | breach | Bilinen veri sızıntısında — password/plaintext_password→CRITICAL (95), password_hash veya ≥5 breach→HIGH (85), diğer→MEDIUM (65) |
 | `OTX_MALWARE_ACTIVITY_DETECTED` | otx | AlienVault OTX malware kaydı var — ≥3 sample→CRITICAL (95), ≥1→HIGH (85) |
 | `OTX_PULSE_DETECTED` | otx | AlienVault OTX tehdit pulse'ı var — ≥5 pulse→HIGH (80), ≥1→MEDIUM (60) |
+| `SQL_INJECTION_SUSPECTED` | sqli | SQLi sinyali tespit edildi — severity `computeRisk()` ile (LOW 35 / MEDIUM 65 / HIGH 85 / CRITICAL 95); key `SQLI:<asset>:<path>:<param>`; sinyal yoksa resolve |
+| `LOGIN_PANEL_VISIBLE` | visual | Login formu görünür — LOW (35); key `VISUAL:<signal>:<asset>` |
+| `ADMIN_PANEL_VISIBLE` | visual | Admin panel ipucu — tek başına MEDIUM (65), LOGIN/ERROR ile birlikte HIGH (85) |
+| `DEFAULT_SERVER_PAGE_VISIBLE` | visual | Varsayılan sunucu sayfası (nginx/apache default) — MEDIUM (65) |
+| `ERROR_PAGE_VISIBLE` | visual | Hata sayfası görünür — MEDIUM (65) |
+| `EMPTY_PAGE_DETECTED` | visual | Boş/içeriksiz sayfa — LOW (35) |
+| `VISUAL_CHANGE_DETECTED` | visual | **Tip tanımlı ama henüz işlenmiyor** (visual.findings.ts'te ALL_VISUAL_SIGNALS'a dahil değil) — screenshot/visibleText hash değişimi için ayrılmış |
+
+> Sinyal kaybolduğunda visual finding'ler otomatik resolve edilir (her scan'de 5 sinyalin tamamı için upsert/resolve kontrolü). SQLi finding'leri sadece `skipped`/`error` değilken resolve edilebilir.
 
 #### Finding Upsert Mantığı (`utils/finding.ts`)
 
@@ -609,8 +661,8 @@ Finding
   key         String    -- asset başına unique identifier
   severity    Severity  (LOW | MEDIUM | HIGH | CRITICAL)
   dataJson    Json      -- teknik detaylar
-  aiScore     Int?      -- 0-100 AI risk puanı
-  aiWhyJson   Json?     -- {summary, reasons, recommendations, context, impact}
+  aiScore     Int       -- 0-100 risk puanı (ZORUNLU — processor static skorla doldurur, AI sonradan zenginleştirir)
+  aiWhyJson   Json      -- ZORUNLU; {summary, reasons, recommendations, context, impact}
   isNew       Boolean   @default(true)
   createdAt   DateTime  @default(now())
   lastSeenAt  DateTime  @default(now())
@@ -633,6 +685,45 @@ PassiveLookupRun
   @@index([userId])
   @@index([userId, checkedAt])
   @@index([target])
+
+SqliTarget                              -- kullanıcının eklediği SQLi probe hedefleri
+  id          String    @id @default(cuid())
+  assetId     String                    -- onDelete: Cascade
+  method      String                    -- MVP: sadece "GET"
+  path        String                    -- örn "/product" veya "/search"
+  paramsJson  Json                      -- örn { "id": "1" }
+  injectParam String                    -- paramsJson içindeki enjekte edilecek key
+  enabled     Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  @@index([assetId])
+  @@index([assetId, enabled])
+
+VisualAnalysisRun                       -- verified asset görsel analiz çalışması
+  id          String    @id @default(cuid())
+  assetId     String                    -- onDelete: Cascade
+  url / finalUrl / statusCode
+  screenshotPath/Hash/Width/Height
+  title / metaDescription / h1TextsJson / visibleText (@db.Text) / visibleTextHash
+  siteCategory / purposeSummary / language / signalsJson / analysisJson / riskLevel
+  error       String?
+  createdAt / updatedAt
+  @@index([assetId, createdAt])
+  @@index([url])
+
+PublicVisualAnalysisRun                 -- verified asset gerektirmeyen public URL analizi
+  id          String    @id @default(cuid())
+  userId      String                    -- onDelete: Cascade
+  url / finalUrl / statusCode
+  status      String    @default("RUNNING")  -- RUNNING | DONE | FAILED (frontend polling)
+  screenshotPath/Hash/Width/Height
+  title / metaDescription / h1TextsJson / visibleText (@db.Text) / visibleTextHash
+  ruleSiteCategory / rulePurposeSummary / ruleLanguage / ruleSignalsJson / ruleRiskLevel
+  aiVisualAnalysisJson Json?            -- tam AiVisualAnalysisResult JSON
+  error       String?
+  createdAt / updatedAt / finishedAt
+  @@index([userId, createdAt])
+  @@index([status])
 ```
 
 ### Migration Geçmişi
@@ -644,8 +735,12 @@ PassiveLookupRun
 | 2026-03-01 | `add_scan_check_result` | ScanCheckResult tablosu |
 | 2026-03-01 | `add_finding_resolved_at` | Finding.resolvedAt |
 | 2026-04-28 | `add_asset_scan_interval` | Asset.scanInterval |
+| 2026-05-22 | `baseline_passive_lookup_run` | PassiveLookupRun tablosu (passive OTX lookup geçmişi) |
+| 2026-05-22 | `add_sqli_target` | SqliTarget tablosu |
+| 2026-05-25 | `add_visual_analysis` | VisualAnalysisRun tablosu |
+| 2026-05-29 | `add_public_visual_analysis_run` | PublicVisualAnalysisRun tablosu |
 
-> `DNS_RECORDS` check tipi yalnızca uygulama katmanında tanımlanmıştır. `ScanCheckResult.type` sütunu `String` tipinde olduğundan migration gerekmez.
+> `DNS_RECORDS` (ve `SQLI_PROBE` / `VISUAL_ANALYSIS`) check tipleri yalnızca uygulama katmanında tanımlanmıştır. `ScanCheckResult.type` sütunu `String` tipinde olduğundan yeni check tipi için migration gerekmez.
 
 ---
 
@@ -698,6 +793,38 @@ PassiveLookupRun
 |--------|----------|------|----------|
 | GET | `/findings?assetId=X&severity=&resolved=&isNew=&page=&limit=` | ✓ | Filtreli bulgu listesi |
 | PATCH | `/findings/:id/ack` | ✓ | Bulguyu onayla (isNew=false) |
+
+### SQLi Hedefleri (`/assets/:assetId/sqli-targets`)
+
+| Method | Endpoint | Auth | Açıklama |
+|--------|----------|------|----------|
+| GET | `/assets/:assetId/sqli-targets` | ✓ | Asset'in SQLi probe hedeflerini listele |
+| POST | `/assets/:assetId/sqli-targets` | ✓ | Yeni hedef ekle (asset başına max 5) |
+| PATCH | `/assets/:assetId/sqli-targets/:id` | ✓ | Hedef güncelle (path, params, injectParam, enabled) |
+| DELETE | `/assets/:assetId/sqli-targets/:id` | ✓ | Hedef sil |
+
+### Görsel Analiz (`/assets/:assetId/visual-analysis`)
+
+| Method | Endpoint | Auth | Açıklama |
+|--------|----------|------|----------|
+| GET | `/assets/:assetId/visual-analysis` | ✓ | Son görsel analiz çalışmaları (`limit` opsiyonel) |
+| GET | `/assets/:assetId/visual-analysis/:runId` | ✓ | Çalışma detayı (visibleText + raw analysis) |
+| GET | `/assets/:assetId/visual-analysis/:runId/screenshot` | ✓ | Screenshot PNG stream (image/png) |
+
+### Public Görsel Analiz (`/visual-analysis/public`)
+
+| Method | Endpoint | Auth | Açıklama |
+|--------|----------|------|----------|
+| POST | `/visual-analysis/public` | ✓ | Public URL görsel analizi başlat (SSRF-guard'lı, asset gerekmez); `{url}` body |
+| GET | `/visual-analysis/public` | ✓ | Kullanıcının son public analizleri (`limit` opsiyonel) |
+| GET | `/visual-analysis/public/:runId` | ✓ | Çalışma detayı (frontend polling — status RUNNING→DONE/FAILED) |
+| GET | `/visual-analysis/public/:runId/screenshot` | ✓ | Screenshot PNG stream |
+
+### AI Asistan (`/assets/:id/assistant`)
+
+| Method | Endpoint | Auth | Açıklama |
+|--------|----------|------|----------|
+| POST | `/assets/:id/assistant/chat` | ✓ | Asset bağlamında AI ile sohbet (Türkçe); `{message}` body; **rate-limit 10 istek/60s** |
 
 ### Swagger Dökümantasyonu
 
@@ -829,7 +956,7 @@ AI başarısız olursa (API hatası, parse hatası) mevcut statik skorlar korunu
 
 ### TypeScript
 
-- Strict mode aktif tüm paketlerde
+- **Strictness paketlere göre değişir:** `apps/worker` ve `apps/web` tam `strict: true`. **`apps/api` tam strict DEĞİL** — yalnızca `strictNullChecks: true` açık; `noImplicitAny: false` ve `strictBindCallApply: false` ([apps/api/tsconfig.json](apps/api/tsconfig.json)). API'de tip güvenliği yeni kodda elle korunmalı.
 - `any` kullanımından kaçın, `unknown` tercih et
 - Interface isimleri `I` prefix'i olmadan (`Asset` değil `IAsset`)
 - Enum yerine `as const` object literal tercih edilir (shared'da görüldüğü gibi)

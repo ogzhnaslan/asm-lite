@@ -159,7 +159,7 @@ describe('FindingsService', () => {
       prismaFinding.findFirst.mockResolvedValue(finding);
       prismaFinding.update.mockResolvedValue({ ...finding, isNew: false });
 
-      const result = await service.ack('user-1', 'finding-1');
+      const result = await service.ack('user-1', 'finding-1') as { isNew: boolean };
 
       expect(result.isNew).toBe(false);
       expect(prismaFinding.update).toHaveBeenCalledWith(

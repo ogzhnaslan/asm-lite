@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AssistantLlmService } from '../assistant/assistant-llm.service';
 import { OtxLookupService, OtxLookupResult } from './otx-lookup.service';
@@ -224,6 +224,8 @@ export interface PassiveLookupAskResult {
 
 @Injectable()
 export class IntelligenceService {
+  private readonly logger = new Logger(IntelligenceService.name);
+
   constructor(
     private readonly otxLookup: OtxLookupService,
     private readonly prisma: PrismaService,
@@ -239,9 +241,14 @@ export class IntelligenceService {
     const checkedAt = new Date().toISOString();
     const otx = await this.otxLookup.lookup(target, targetType);
 
-    // DB'ye kaydet — fire-and-forget, ana response'u bloklamaz
-    this.savePassiveLookupRun(userId, target, targetType, otx).catch(() => {
-      // Kayıt hatası ana sorguyu etkilemez
+    // DB'ye kaydet — fire-and-forget, ana response'u bloklamaz. Kayıt hatası
+    // ana sorguyu etkilemez ama sessizce yutulmaz — loglanır (audit/troubleshoot).
+    this.savePassiveLookupRun(userId, target, targetType, otx).catch((err: unknown) => {
+      this.logger.warn(
+        `passive lookup kaydı başarısız (target=${target}, userId=${userId}): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     });
 
     return {
