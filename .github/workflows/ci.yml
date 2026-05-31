@@ -40,19 +40,23 @@ jobs:
           (cd apps/api && pnpm exec prisma generate)
           # pnpm + Prisma custom-output tip senkronizasyonu (CLAUDE.md'de belgeli
           # quirk): generate çıktısı apps/api/node_modules/.prisma/client'a yazılır
-          # ama @prisma/client import'u pnpm store'daki .prisma/client kopyasına
-          # çözülür. Temiz install'da store kopyası stub kalır → typecheck patlar.
-          # Üretilen client'ı store kopyalarına eşitleyerek bunu önlüyoruz.
+          # ama @prisma/client import'u, store'daki paketin yanındaki .prisma/client'a
+          # çözülür. Temiz install'da bu kopya yok → @prisma/client model tiplerini
+          # export etmez → typecheck patlar. Üretilen client'ı store'daki her
+          # @prisma/client paketinin node_modules'una .prisma/client olarak kopyalarız.
           src="apps/api/node_modules/.prisma/client"
           synced=0
-          for dest in node_modules/.pnpm/@prisma+client@*/node_modules/.prisma/client; do
-            if [ -d "$(dirname "$dest")" ]; then
-              mkdir -p "$dest"
-              cp -r "$src/." "$dest/"
-              synced=$((synced+1))
-            fi
+          for nm in node_modules/.pnpm/@prisma+client@*/node_modules; do
+            [ -d "$nm" ] || continue
+            mkdir -p "$nm/.prisma/client"
+            cp -r "$src/." "$nm/.prisma/client/"
+            synced=$((synced + 1))
           done
           echo "Prisma client store kopyaları senkronize edildi: $synced"
+          if [ "$synced" -eq 0 ]; then
+            echo "::error::Prisma client store senkronizasyonu 0 hedef buldu — glob/path bozuk"
+            exit 1
+          fi
 
       - name: Typecheck (api — spec dosyaları dahil)
         run: pnpm --filter api exec tsc --noEmit -p tsconfig.json
