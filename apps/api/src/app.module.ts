@@ -15,6 +15,7 @@ import { IntelligenceModule } from "./modules/intelligence/intelligence.module";
 import { VisualAnalysisModule } from "./modules/visual-analysis/visual-analysis.module";
 import { PublicVisualAnalysisModule } from "./modules/public-visual/public-visual.module";
 import { SqliTargetsModule } from "./modules/sqli-targets/sqli-targets.module";
+import { DashboardModule } from "./modules/dashboard/dashboard.module";
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { SqliTargetsModule } from "./modules/sqli-targets/sqli-targets.module";
     SqliTargetsModule,
     VisualAnalysisModule,
     PublicVisualAnalysisModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [

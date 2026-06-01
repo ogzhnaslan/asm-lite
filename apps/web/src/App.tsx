@@ -15,6 +15,7 @@ import { ThreatIntelligencePage } from './pages/intelligence/ThreatIntelligenceP
 import { ReputationCenterPage } from './pages/intelligence/ReputationCenterPage';
 import { PassiveLookupPage } from './pages/intelligence/PassiveLookupPage';
 import { VisualAnalysisPage } from './pages/VisualAnalysisPage';
+import { DashboardPage } from './pages/DashboardPage';
 
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -29,6 +30,9 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+
+        {/* Overview */}
+        <Route path="/dashboard" element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
 
         {/* Monitor */}
         <Route path="/assets" element={<ProtectedLayout><AssetsPage /></ProtectedLayout>} />

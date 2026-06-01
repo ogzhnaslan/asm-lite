@@ -1,6 +1,7 @@
 import { apiClient } from './client';
 import type {
-  Asset, AssistantChatResponse, CreateSqliTargetPayload, Finding, IntelligenceReport,
+  Asset, AssistantChatResponse, CreateSqliTargetPayload, DashboardTrends, DashboardWindow,
+  Finding, IntelligenceReport,
   Paginated, PassiveLookupAskResponse, PassiveLookupHistoryResponse, PassiveLookupResponse,
   PassiveLookupRun, ScanRun, SqliTarget, UpdateSqliTargetPayload,
 } from '../types';
@@ -82,6 +83,11 @@ export const resolveFinding = (id: string) =>
 // Manuel olarak kapatılmış bir bulguyu yeniden aç.
 export const reopenFinding = (id: string) =>
   apiClient.patch<Finding>(`/findings/${id}/reopen`).then(r => r.data);
+
+// ─── Dashboard ───────────────────────────────────────────────────────────────
+
+export const getDashboardTrends = (window: DashboardWindow = '30d') =>
+  apiClient.get<DashboardTrends>('/dashboard/trends', { params: { window } }).then(r => r.data);
 
 // ─── Passive Intelligence Lookup ─────────────────────────────────────────────
 

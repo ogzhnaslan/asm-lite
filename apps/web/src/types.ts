@@ -15,6 +15,47 @@ export interface Asset {
   createdAt: string;
 }
 
+// ─── Dashboard (global severity trend) ──────────────────────────────────────
+export type DashboardWindow = '7d' | '30d';
+
+export interface DashboardSeverityTotals {
+  all: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+}
+
+export interface DashboardDailyBucket {
+  date: string;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  total: number;
+}
+
+export interface DashboardInsight {
+  trend: 'up' | 'down' | 'flat';
+  changePct: number;
+  previousTotal: number;
+  dominantSeverity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null;
+  busiestDate: string | null;
+  busiestCount: number;
+  activeCritical: number;
+  activeHigh: number;
+  text: string;
+}
+
+export interface DashboardTrends {
+  window: DashboardWindow;
+  from: string;
+  to: string;
+  totals: DashboardSeverityTotals;
+  daily: DashboardDailyBucket[];
+  insight: DashboardInsight;
+}
+
 export interface Paginated<T> {
   items: T[];
   total: number;
