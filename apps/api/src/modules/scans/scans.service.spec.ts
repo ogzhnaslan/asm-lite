@@ -12,18 +12,20 @@ const mockScanRun = { id: 'run-1', startedAt: new Date(), status: 'RUNNING' };
 describe('ScansService', () => {
   let service: ScansService;
   let prismaAsset: { findFirst: jest.Mock };
-  let prismaScanRun: { findMany: jest.Mock; create: jest.Mock; count: jest.Mock };
+  let prismaScanRun: { findMany: jest.Mock; findFirst: jest.Mock; create: jest.Mock; count: jest.Mock };
+  let prismaScanCheckResult: { findMany: jest.Mock };
   let queueAdd: jest.Mock;
 
   beforeEach(async () => {
     prismaAsset = { findFirst: jest.fn() };
-    prismaScanRun = { findMany: jest.fn(), create: jest.fn(), count: jest.fn() };
+    prismaScanRun = { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn(), count: jest.fn() };
+    prismaScanCheckResult = { findMany: jest.fn() };
     queueAdd = jest.fn().mockResolvedValue({ id: 'job-1' });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ScansService,
-        { provide: PrismaService, useValue: { asset: prismaAsset, scanRun: prismaScanRun } },
+        { provide: PrismaService, useValue: { asset: prismaAsset, scanRun: prismaScanRun, scanCheckResult: prismaScanCheckResult } },
         { provide: getQueueToken(QUEUE_SCAN), useValue: { add: queueAdd } },
       ],
     }).compile();
@@ -57,6 +59,38 @@ describe('ScansService', () => {
       expect(result.items[0].findingsCount).toBe(3);
       expect(result.total).toBe(1);
       expect(result.page).toBe(1);
+    });
+  });
+
+  // ─── checks ──────────────────────────────────────────────────────────────────
+
+  describe('checks', () => {
+    it('scanRunId verilmezse → BadRequestException', async () => {
+      await expect(service.checks('user-1', '')).rejects.toThrow(BadRequestException);
+    });
+
+    it('tarama bulunamazsa/başkasına aitse → NotFoundException', async () => {
+      prismaScanRun.findFirst.mockResolvedValue(null);
+      await expect(service.checks('user-1', 'run-1')).rejects.toThrow(NotFoundException);
+      expect(prismaScanCheckResult.findMany).not.toHaveBeenCalled();
+    });
+
+    it('başarılı → o taramanın tüm check snapshot\'ları döner', async () => {
+      prismaScanRun.findFirst.mockResolvedValue({ id: 'run-1', status: 'DONE', startedAt: new Date(), finishedAt: new Date() });
+      prismaScanCheckResult.findMany.mockResolvedValue([
+        { id: 'c1', type: 'PORTS', dataJson: { openPorts: [22] }, createdAt: new Date() },
+        { id: 'c2', type: 'TLS_INFO', dataJson: { ok: true }, createdAt: new Date() },
+      ]);
+
+      const result = await service.checks('user-1', 'run-1');
+
+      expect(result.scanRunId).toBe('run-1');
+      expect(result.items).toHaveLength(2);
+      expect(result.items.map(i => i.type)).toEqual(['PORTS', 'TLS_INFO']);
+      // ownership scanRun.findFirst asset.userId ile sorgulanır
+      expect(prismaScanRun.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'run-1', asset: { userId: 'user-1' } } }),
+      );
     });
   });
 

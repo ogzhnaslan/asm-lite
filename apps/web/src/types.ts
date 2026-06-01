@@ -74,6 +74,20 @@ export interface ScanRun {
   findingsCount: number;
 }
 
+// Bir taramanın tek bir check snapshot'ı (ham sonuç). "Akış" görünümü için.
+export interface ScanCheckResult {
+  id: string;
+  type: string;
+  dataJson: unknown;
+  createdAt: string;
+}
+
+export interface ScanChecksResponse {
+  scanRunId: string;
+  status: ScanStatus;
+  items: ScanCheckResult[];
+}
+
 export interface AiWhy {
   summary?: string;
   impact?: string;

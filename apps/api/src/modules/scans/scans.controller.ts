@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { ScansService } from './scans.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
@@ -36,5 +36,12 @@ export class ScansController {
       page ? Math.max(1, parseInt(page, 10)) : 1,
       limit ? Math.min(50, Math.max(1, parseInt(limit, 10))) : 20,
     );
+  }
+
+  @ApiOperation({ summary: 'Get all check-result snapshots for a single scan run (clean + problem)' })
+  @ApiParam({ name: 'scanRunId', description: 'Tarama (ScanRun) ID' })
+  @Get(':scanRunId/checks')
+  checks(@CurrentUser() user: AuthUser, @Param('scanRunId') scanRunId: string) {
+    return this.scansService.checks(user.id, scanRunId);
   }
 }

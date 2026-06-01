@@ -3,7 +3,7 @@ import type {
   Asset, AssistantChatResponse, CreateSqliTargetPayload, DashboardTrends, DashboardWindow,
   Finding, IntelligenceReport,
   Paginated, PassiveLookupAskResponse, PassiveLookupHistoryResponse, PassiveLookupResponse,
-  PassiveLookupRun, ScanRun, SqliTarget, UpdateSqliTargetPayload,
+  PassiveLookupRun, ScanChecksResponse, ScanRun, SqliTarget, UpdateSqliTargetPayload,
 } from '../types';
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
@@ -56,6 +56,10 @@ export const getAssetIntelligence = (id: string) =>
 
 export const runNow = (assetId: string) =>
   apiClient.post<{ ok: boolean; scanRunId: string; status: string }>('/scans/run-now', null, { params: { assetId } }).then(r => r.data);
+
+// Bir taramanın TÜM check sonuçları (temiz + sorunlu) — akış görünümü.
+export const getScanChecks = (scanRunId: string) =>
+  apiClient.get<ScanChecksResponse>(`/scans/${scanRunId}/checks`).then(r => r.data);
 
 // Backend may return ScanRun[] (old) or { items, total, page, limit } (new).
 // We always normalise to ScanRun[] so callers don't need to change.

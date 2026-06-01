@@ -56,6 +56,39 @@ export class ScansService {
     return { items, total, page, limit };
   }
 
+  // Bir taramanın TÜM check sonuçları (temiz + sorunlu) — "akış" görünümü için.
+  // Ownership: scanRun → asset → userId. Bulgu (Finding) değil, ham check
+  // snapshot'larını (ScanCheckResult) döndürür; frontend her tip için durum+özet üretir.
+  async checks(
+    userId: string,
+    scanRunId: string,
+  ): Promise<{
+    scanRunId: string;
+    status: ScanRunStatus;
+    items: Array<{ id: string; type: string; dataJson: unknown; createdAt: Date }>;
+  }> {
+    if (!scanRunId) {
+      throw new BadRequestException("scanRunId is required");
+    }
+
+    const run = await this.prisma.scanRun.findFirst({
+      where: { id: scanRunId, asset: { userId } },
+      select: { id: true, status: true, startedAt: true, finishedAt: true },
+    });
+
+    if (!run) {
+      throw new NotFoundException("Scan not found");
+    }
+
+    const checks = await this.prisma.scanCheckResult.findMany({
+      where: { scanRunId },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, type: true, dataJson: true, createdAt: true },
+    });
+
+    return { scanRunId: run.id, status: run.status, items: checks };
+  }
+
   async runNow(userId: string, assetId: string) {
     if (!assetId) {
       throw new BadRequestException("assetId is required");

@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  getAsset, deleteAsset, runNow, getScanHistory, getFindings, ackFinding,
+  getAsset, deleteAsset, runNow, getScanHistory, getScanChecks, getFindings, ackFinding,
   resolveFinding, reopenFinding, setCritical, updateScanInterval,
 } from '../api/api';
+import { summarizeCheck, CHECK_ORDER, type CheckStatus } from '../utils/scanCheckSummary';
 import { Spinner } from '../components/Spinner';
 import { SeverityBadge, ScanStatusBadge, getSeverityConfig } from '../components/Badge';
 import type { FindingSeverity } from '../types';
@@ -789,41 +790,84 @@ function FindingCard({ finding, onAck, acking, onResolve, onReopen, resolving }:
 
 // ─── Scan row ─────────────────────────────────────────────────────────────────
 
+const CHECK_STATUS_CFG: Record<CheckStatus, { c: string; glow: string; label: string }> = {
+  ok:    { c: '#34d399', glow: 'rgba(16,185,129,0.5)',  label: 'Temiz' },
+  warn:  { c: '#fb923c', glow: 'rgba(249,115,22,0.5)',  label: 'Dikkat' },
+  error: { c: '#f87171', glow: 'rgba(239,68,68,0.5)',   label: 'Hata' },
+  skip:  { c: '#64748b', glow: 'rgba(100,116,139,0.35)', label: 'Atlandı' },
+};
+
+function CheckLine({ type, dataJson }: { type: string; dataJson: unknown }) {
+  const s = summarizeCheck(type, dataJson);
+  const cfg = CHECK_STATUS_CFG[s.status];
+  return (
+    <div className="flex items-start gap-3 px-3 py-2 rounded-lg" style={{ background: 'rgba(255,255,255,0.02)' }}>
+      <span className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+        style={{ background: cfg.c, boxShadow: `0 0 6px ${cfg.glow}` }} />
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-medium text-slate-300">{s.label}</p>
+        <p className="text-xs text-slate-500 mt-0.5 break-words">{s.summary}</p>
+      </div>
+      <span className="text-[10px] font-semibold uppercase tracking-wide flex-shrink-0 mt-0.5" style={{ color: cfg.c }}>
+        {cfg.label}
+      </span>
+    </div>
+  );
+}
+
 function ScanRow({ scan }: { scan: import('../types').ScanRun }) {
+  const [expanded, setExpanded] = useState(false);
+  const expandable = scan.status !== 'RUNNING';
   const duration = scan.finishedAt
     ? Math.round((new Date(scan.finishedAt).getTime() - new Date(scan.startedAt).getTime()) / 1000)
     : null;
 
+  const checksQ = useQuery({
+    queryKey: ['scan-checks', scan.id],
+    queryFn: () => getScanChecks(scan.id),
+    enabled: expanded && expandable,
+    staleTime: 5 * 60_000,
+  });
+
+  // CHECK_ORDER'a göre sıralı, bilinmeyen tipler sona.
+  const orderedItems = checksQ.data
+    ? [...checksQ.data.items].sort((a, b) => {
+        const ia = CHECK_ORDER.indexOf(a.type); const ib = CHECK_ORDER.indexOf(b.type);
+        return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+      })
+    : [];
+
   return (
-    <div className="rounded-2xl px-5 py-4 flex items-center gap-4 transition-all duration-200"
+    <div className="rounded-2xl overflow-hidden transition-all duration-200"
       style={{
         background: 'linear-gradient(145deg, #0e1d35 0%, #0a1628 100%)',
         border: '1px solid rgba(56,189,248,0.08)',
       }}>
-      <ScanStatusBadge status={scan.status} />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-slate-300">
-          {new Date(scan.startedAt).toLocaleString('tr-TR')}
-        </p>
-        <p className="text-xs text-slate-600 mt-0.5">
-          {scan.status === 'RUNNING'
-            ? 'Tarama devam ediyor...'
-            : duration !== null
-              ? `${duration < 60 ? `${duration} saniyede` : `${Math.round(duration / 60)} dakikada`} tamamlandı`
-              : ''
-          }
-        </p>
-      </div>
-      <div>
+      <div
+        className={`px-5 py-4 flex items-center gap-4 ${expandable ? 'cursor-pointer hover:bg-white/[0.02] transition-colors' : ''}`}
+        onClick={() => expandable && setExpanded(v => !v)}
+      >
+        <ScanStatusBadge status={scan.status} />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-slate-300">
+            {new Date(scan.startedAt).toLocaleString('tr-TR')}
+          </p>
+          <p className="text-xs text-slate-600 mt-0.5">
+            {scan.status === 'RUNNING'
+              ? 'Tarama devam ediyor...'
+              : duration !== null
+                ? `${duration < 60 ? `${duration} saniyede` : `${Math.round(duration / 60)} dakikada`} tamamlandı · tüm kontroller için tıkla`
+                : 'tüm kontroller için tıkla'
+            }
+          </p>
+        </div>
         {scan.status === 'RUNNING' ? (
-          // Tarama bitmeden "Temiz"/bulgu iddiası yapma — nötr "Taranıyor".
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full"
             style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.2)' }}>
             <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
             Taranıyor
           </span>
         ) : scan.status === 'FAILED' ? (
-          // Başarısız tarama "Temiz" değildir — sonuç yok.
           <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 px-3 py-1.5 rounded-full"
             style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
             <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
@@ -842,7 +886,34 @@ function ScanRow({ scan }: { scan: import('../types').ScanRun }) {
             Temiz
           </span>
         )}
+        {expandable && (
+          <svg className={`w-4 h-4 text-slate-600 transition-transform duration-200 flex-shrink-0 ${expanded ? 'rotate-180' : ''}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        )}
       </div>
+
+      {expanded && expandable && (
+        <div className="px-5 pb-4 pt-1 border-t border-white/[0.05]">
+          {checksQ.isLoading ? (
+            <p className="text-sm text-slate-600 py-3">Kontroller yükleniyor…</p>
+          ) : checksQ.isError ? (
+            <p className="text-sm text-red-400/80 py-3">Tarama sonuçları alınamadı.</p>
+          ) : orderedItems.length === 0 ? (
+            <p className="text-sm text-slate-600 py-3">Bu tarama için kayıtlı kontrol sonucu yok.</p>
+          ) : (
+            <div className="space-y-1.5 mt-3">
+              <p className="text-[11px] uppercase tracking-widest text-slate-600 font-semibold mb-2 px-1">
+                Bu taramada çalışan tüm kontroller ({orderedItems.length})
+              </p>
+              {orderedItems.map(c => (
+                <CheckLine key={c.id} type={c.type} dataJson={c.dataJson} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
