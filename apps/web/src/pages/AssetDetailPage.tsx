@@ -815,11 +815,25 @@ function ScanRow({ scan }: { scan: import('../types').ScanRun }) {
         </p>
       </div>
       <div>
-        {scan._count.findings > 0 ? (
+        {scan.status === 'RUNNING' ? (
+          // Tarama bitmeden "Temiz"/bulgu iddiası yapma — nötr "Taranıyor".
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full"
+            style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.2)' }}>
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+            Taranıyor
+          </span>
+        ) : scan.status === 'FAILED' ? (
+          // Başarısız tarama "Temiz" değildir — sonuç yok.
+          <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 px-3 py-1.5 rounded-full"
+            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+            Sonuç yok
+          </span>
+        ) : scan.findingsCount > 0 ? (
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full"
             style={{ background: 'rgba(249,115,22,0.1)', color: '#fb923c', border: '1px solid rgba(249,115,22,0.2)' }}>
             <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
-            {scan._count.findings} bulgu
+            {scan.findingsCount} bulgu
           </span>
         ) : (
           <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 px-3 py-1.5 rounded-full"

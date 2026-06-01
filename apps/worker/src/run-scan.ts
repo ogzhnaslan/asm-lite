@@ -505,7 +505,17 @@ export async function runScan(
   // --------------------
   // Finish
   // --------------------
-  await prisma.scanRun.update({ where: { id: runId }, data: { status: 'DONE', finishedAt: new Date() } });
-  log('done', { scanType, scanRunId: runId, assetId });
+  // Bu taramanın aktif bulgu sayısını dondur — scanRunId sonraki taramada
+  // taşındığı için _count.findings tarihsel olarak güvenilmez; bu skalar
+  // taramanın o anki sonucunu kalıcı saklar. Sayım hatası scan'i patlatmaz.
+  let findingsCount = 0;
+  try {
+    findingsCount = await prisma.finding.count({ where: { scanRunId: runId, resolvedAt: null } });
+  } catch (err) {
+    log('findingsCount count failed', { error: (err as Error).message });
+  }
+
+  await prisma.scanRun.update({ where: { id: runId }, data: { status: 'DONE', finishedAt: new Date(), findingsCount } });
+  log('done', { scanType, scanRunId: runId, assetId, findingsCount });
   return { ok: true, scanRunId: runId };
 }

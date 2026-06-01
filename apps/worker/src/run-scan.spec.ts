@@ -150,7 +150,7 @@ function makeMockPrisma() {
     asset:           { findUnique: jest.fn() },
     scanRun:         { create: jest.fn().mockResolvedValue({ id: 'run-1' }), update: jest.fn().mockResolvedValue({}) },
     scanCheckResult: { create: jest.fn().mockResolvedValue({}), findFirst: jest.fn().mockResolvedValue(null) },
-    finding:         { findMany: jest.fn().mockResolvedValue([]), update: jest.fn().mockResolvedValue({}) },
+    finding:         { findMany: jest.fn().mockResolvedValue([]), update: jest.fn().mockResolvedValue({}), count: jest.fn().mockResolvedValue(0) },
   };
 }
 
@@ -321,6 +321,30 @@ describe('runScan', () => {
           data: expect.objectContaining({ status: 'DONE', finishedAt: expect.any(Date) }),
         }),
       );
+    });
+
+    it('DONE update aktif bulgu sayısını (findingsCount) dondurur', async () => {
+      mockPrisma.finding.count.mockResolvedValue(7);
+      await runScan(mockPrisma as unknown as PrismaClient, makeJob('asset-1', 'run-1'));
+
+      // count, bu run'ın aktif bulguları için çağrılır
+      expect(mockPrisma.finding.count).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { scanRunId: 'run-1', resolvedAt: null } }),
+      );
+      // ve sonuç DONE update'ine yazılır
+      const doneCall = (mockPrisma.scanRun.update as jest.Mock).mock.calls
+        .find((c) => (c[0] as { data: { status: string } }).data.status === 'DONE');
+      expect(doneCall![0].data.findingsCount).toBe(7);
+    });
+
+    it('findingsCount count hatası scan\'i patlatmaz (DONE yine yazılır)', async () => {
+      mockPrisma.finding.count.mockRejectedValue(new Error('count failed'));
+      const result = await runScan(mockPrisma as unknown as PrismaClient, makeJob('asset-1', 'run-1'));
+
+      expect(result.ok).toBe(true);
+      const doneCall = (mockPrisma.scanRun.update as jest.Mock).mock.calls
+        .find((c) => (c[0] as { data: { status: string } }).data.status === 'DONE');
+      expect(doneCall![0].data.findingsCount).toBe(0);
     });
 
     it('12 snapshot yazılır (DOMAIN için)', async () => {

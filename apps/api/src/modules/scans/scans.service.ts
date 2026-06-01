@@ -45,7 +45,9 @@ export class ScansService {
           startedAt: true,
           finishedAt: true,
           status: true,
-          _count: { select: { findings: true } },
+          // findingsCount: tarama bitişinde dondurulan kalıcı sayı (scanRunId
+          // taşınmasından etkilenmez). _count.findings yerine bunu kullanıyoruz.
+          findingsCount: true,
         },
       }),
       this.prisma.scanRun.count({ where: { assetId } }),

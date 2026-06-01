@@ -47,14 +47,14 @@ describe('ScansService', () => {
     it('başarılı → scan run listesi döner', async () => {
       prismaAsset.findFirst.mockResolvedValue({ id: 'asset-1' });
       prismaScanRun.findMany.mockResolvedValue([
-        { id: 'run-1', assetId: 'asset-1', startedAt: new Date(), finishedAt: new Date(), status: 'DONE', _count: { findings: 3 } },
+        { id: 'run-1', assetId: 'asset-1', startedAt: new Date(), finishedAt: new Date(), status: 'DONE', findingsCount: 3 },
       ]);
       prismaScanRun.count.mockResolvedValue(1);
 
       const result = await service.history('user-1', 'asset-1');
 
       expect(result.items).toHaveLength(1);
-      expect(result.items[0]._count.findings).toBe(3);
+      expect(result.items[0].findingsCount).toBe(3);
       expect(result.total).toBe(1);
       expect(result.page).toBe(1);
     });

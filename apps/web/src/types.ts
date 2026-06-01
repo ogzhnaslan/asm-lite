@@ -69,7 +69,9 @@ export interface ScanRun {
   startedAt: string;
   finishedAt: string | null;
   status: ScanStatus;
-  _count: { findings: number };
+  // Tarama bitişinde dondurulan aktif bulgu sayısı (kalıcı; scanRunId taşınmasından
+  // etkilenmez). Yalnızca DONE taramalarda anlamlıdır.
+  findingsCount: number;
 }
 
 export interface AiWhy {

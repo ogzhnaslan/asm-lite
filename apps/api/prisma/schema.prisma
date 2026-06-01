@@ -110,6 +110,11 @@ model ScanRun {
   finishedAt DateTime?
   status     ScanRunStatus @default(RUNNING)
 
+  // Tarama bitişinde dondurulan aktif bulgu sayısı. Finding.scanRunId bir
+  // sonraki taramada en güncel run'a taşındığı için _count.findings tarihsel
+  // olarak güvenilir değildir; bu skalar, o taramanın o anki sonucunu kalıcı tutar.
+  findingsCount Int @default(0)
+
   checkResults ScanCheckResult[]
   findings     Finding[]
 
