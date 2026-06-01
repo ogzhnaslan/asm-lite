@@ -43,4 +43,16 @@ export class FindingsController {
   ack(@CurrentUser() user: AuthUser, @Param('id') id: string): Promise<unknown> {
     return this.findingsService.ack(user.id, id);
   }
+
+  @ApiOperation({ summary: 'Manually resolve a finding (set resolvedAt; reopened on next scan if issue persists)' })
+  @Patch(':id/resolve')
+  resolve(@CurrentUser() user: AuthUser, @Param('id') id: string): Promise<unknown> {
+    return this.findingsService.resolve(user.id, id);
+  }
+
+  @ApiOperation({ summary: 'Reopen a manually resolved finding (clear resolvedAt)' })
+  @Patch(':id/reopen')
+  reopen(@CurrentUser() user: AuthUser, @Param('id') id: string): Promise<unknown> {
+    return this.findingsService.reopen(user.id, id);
+  }
 }

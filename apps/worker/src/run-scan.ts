@@ -386,7 +386,7 @@ export async function runScan(
     scanRun: { assetId: asset.id, status: ScanRunStatus.DONE, id: { not: runId } },
   });
 
-  const [prevPortsSnap, prevTlsSnap, prevHttpSnap, prevDnsSnap, prevRdapSnap, prevGeoIpSnap, prevRobotsSnap] = await Promise.all([
+  const [prevPortsSnap, prevTlsSnap, prevHttpSnap, prevDnsSnap, prevRdapSnap, prevGeoIpSnap, prevRobotsSnap, prevVisualSnap] = await Promise.all([
     prisma.scanCheckResult.findFirst({ where: prevFilter('PORTS'), orderBy: { createdAt: 'desc' }, select: { dataJson: true } }),
     prisma.scanCheckResult.findFirst({ where: prevFilter('TLS_INFO'), orderBy: { createdAt: 'desc' }, select: { dataJson: true } }),
     prisma.scanCheckResult.findFirst({ where: prevFilter('HTTP_HEALTH'), orderBy: { createdAt: 'desc' }, select: { dataJson: true } }),
@@ -400,6 +400,7 @@ export async function runScan(
     isDomain
       ? prisma.scanCheckResult.findFirst({ where: prevFilter('ROBOTS_TXT'), orderBy: { createdAt: 'desc' }, select: { dataJson: true } })
       : Promise.resolve(null),
+    prisma.scanCheckResult.findFirst({ where: prevFilter('VISUAL_ANALYSIS'), orderBy: { createdAt: 'desc' }, select: { dataJson: true } }),
   ]);
 
   // --------------------
@@ -429,7 +430,10 @@ export async function runScan(
     }
   }
   findingTasks.push(
-    ['visual', () => processVisualFindings(prisma, { asset, scanRunId: runId, visualResult, visualRunId })],
+    ['visual', () => processVisualFindings(prisma, {
+      asset, scanRunId: runId, visualResult, visualRunId,
+      previous: (prevVisualSnap?.dataJson as { screenshotHash?: string | null; visibleTextHash?: string | null; skipped?: boolean; error?: string } | null) ?? null,
+    })],
   );
 
   if (isDomain) {

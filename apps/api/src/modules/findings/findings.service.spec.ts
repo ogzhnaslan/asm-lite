@@ -181,4 +181,55 @@ describe('FindingsService', () => {
       await expect(service.ack('user-1', 'finding-1')).rejects.toThrow(NotFoundException);
     });
   });
+
+  // ─── resolve ──────────────────────────────────────────────────────────────────
+
+  describe('resolve', () => {
+    it('finding manuel resolve edilir → resolvedAt set, isNew false', async () => {
+      prismaFinding.findFirst.mockResolvedValue(makeFinding({ asset: { userId: 'user-1' } }));
+      prismaFinding.update.mockResolvedValue({});
+
+      await service.resolve('user-1', 'finding-1');
+
+      const arg = prismaFinding.update.mock.calls[0][0];
+      expect(arg.where).toEqual({ id: 'finding-1' });
+      expect(arg.data.resolvedAt).toBeInstanceOf(Date);
+      expect(arg.data.isNew).toBe(false);
+    });
+
+    it('finding bulunamazsa → NotFoundException, update çağrılmaz', async () => {
+      prismaFinding.findFirst.mockResolvedValue(null);
+      await expect(service.resolve('user-1', 'finding-1')).rejects.toThrow(NotFoundException);
+      expect(prismaFinding.update).not.toHaveBeenCalled();
+    });
+
+    it('başka kullanıcının finding\'i → NotFoundException', async () => {
+      prismaFinding.findFirst.mockResolvedValue(makeFinding({ asset: { userId: 'other-user' } }));
+      await expect(service.resolve('user-1', 'finding-1')).rejects.toThrow(NotFoundException);
+    });
+
+    it('id boşsa → BadRequestException', async () => {
+      await expect(service.resolve('user-1', '')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // ─── reopen ───────────────────────────────────────────────────────────────────
+
+  describe('reopen', () => {
+    it('finding reopen edilir → resolvedAt null', async () => {
+      prismaFinding.findFirst.mockResolvedValue(makeFinding({ asset: { userId: 'user-1' } }));
+      prismaFinding.update.mockResolvedValue({});
+
+      await service.reopen('user-1', 'finding-1');
+
+      const arg = prismaFinding.update.mock.calls[0][0];
+      expect(arg.where).toEqual({ id: 'finding-1' });
+      expect(arg.data.resolvedAt).toBeNull();
+    });
+
+    it('başka kullanıcının finding\'i → NotFoundException', async () => {
+      prismaFinding.findFirst.mockResolvedValue(makeFinding({ asset: { userId: 'other-user' } }));
+      await expect(service.reopen('user-1', 'finding-1')).rejects.toThrow(NotFoundException);
+    });
+  });
 });

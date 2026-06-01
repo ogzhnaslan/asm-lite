@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { FindingTypes } from '@asm/shared';
 import { upsertFinding, resolveFinding } from '../utils/finding';
-import { forVisualSignal, type VisualSignalKey } from '../utils/recommendations';
+import { forVisualSignal, forVisualChange, type VisualSignalKey } from '../utils/recommendations';
 import { log } from '../utils/logger';
 import type { VisualAnalysisResult } from '../checks/visual/visual-types';
 
@@ -10,11 +10,24 @@ interface Asset {
   value: string;
 }
 
+// Önceki VISUAL_ANALYSIS snapshot'ından değişiklik tespiti için ihtiyaç
+// duyduğumuz alanlar. Snapshot dataJson'ı tam VisualAnalysisResult'tur ama
+// karşılaştırma yalnızca hash'lere bakar.
+interface PreviousVisualSnapshot {
+  screenshotHash?: string | null;
+  visibleTextHash?: string | null;
+  skipped?: boolean;
+  error?: string;
+}
+
 interface ProcessVisualFindingsParams {
   asset: Asset;
   scanRunId: string;
   visualResult: VisualAnalysisResult;
   visualRunId?: string | null;
+  // Önceki DONE taramanın VISUAL_ANALYSIS snapshot'ı (değişiklik tespiti için).
+  // null → baseline yok, değişiklik üretilmez.
+  previous?: PreviousVisualSnapshot | null;
 }
 
 // Tüm görsel sinyaller — her scan'de hepsi için upsert/resolve kontrolü
@@ -70,11 +83,16 @@ export function buildVisualFindingKey(signal: VisualSignalKey, assetValue: strin
   return `VISUAL:${signal}:${assetValue}`;
 }
 
+// Değişiklik bulgusu, rule-based sinyallerden ayrı bir key uzayında tutulur.
+export function buildVisualChangeKey(assetValue: string): string {
+  return `VISUAL_CHANGE:${assetValue}`;
+}
+
 export async function processVisualFindings(
   prisma: PrismaClient,
   params: ProcessVisualFindingsParams,
 ): Promise<void> {
-  const { asset, scanRunId, visualResult, visualRunId } = params;
+  const { asset, scanRunId, visualResult, visualRunId, previous } = params;
 
   // Global guard: check error (CHECK_CRASHED veya PAGE_LOAD_FAILED) → eski
   // finding'leri olduğu gibi bırak, yeni finding üretme. Mevcut SQLi/port
@@ -98,6 +116,82 @@ export async function processVisualFindings(
       });
     }
   }
+
+  // VISUAL_CHANGE_DETECTED — önceki snapshot'a göre screenshot/metin hash farkı.
+  try {
+    await processChangeDetection(prisma, asset, scanRunId, visualResult, visualRunId ?? null, previous ?? null);
+  } catch (err) {
+    log('visual findings: change detection error, continuing', {
+      error: (err as Error).message ?? String(err),
+    });
+  }
+}
+
+// Önceki başarılı görsel taramaya göre içerik değişimini tespit eder.
+// Baseline yok / hash yok / değişiklik yok → resolve (no-op). Değişiklik varsa
+// upsert: hem screenshot hem metin değiştiyse MEDIUM, biri değiştiyse LOW.
+async function processChangeDetection(
+  prisma: PrismaClient,
+  asset: Asset,
+  scanRunId: string,
+  visualResult: VisualAnalysisResult,
+  visualRunId: string | null,
+  previous: PreviousVisualSnapshot | null,
+): Promise<void> {
+  const key = buildVisualChangeKey(asset.value);
+
+  const prevUsable = !!previous && !previous.skipped && !previous.error;
+  const prevScreenshot = prevUsable ? previous!.screenshotHash ?? null : null;
+  const prevText = prevUsable ? previous!.visibleTextHash ?? null : null;
+
+  // Karşılaştırma yalnızca her iki tarafta da hash mevcutsa anlamlı.
+  const changedScreenshot =
+    !!prevScreenshot && !!visualResult.screenshotHash && prevScreenshot !== visualResult.screenshotHash;
+  const changedText =
+    !!prevText && !!visualResult.visibleTextHash && prevText !== visualResult.visibleTextHash;
+
+  if (!changedScreenshot && !changedText) {
+    await resolveFinding(prisma, { assetId: asset.id, key });
+    log('visual change finding resolved (no change / no baseline)', { key });
+    return;
+  }
+
+  const severity: 'LOW' | 'MEDIUM' = changedScreenshot && changedText ? 'MEDIUM' : 'LOW';
+  const aiScore = severity === 'MEDIUM' ? 50 : 30;
+  const rec = forVisualChange({
+    url: visualResult.url,
+    title: visualResult.title,
+    changedScreenshot,
+    changedText,
+  });
+
+  await upsertFinding(prisma, {
+    assetId: asset.id,
+    scanRunId,
+    key,
+    type: FindingTypes.VISUAL_CHANGE_DETECTED,
+    severity,
+    aiScore,
+    dataJson: {
+      visualRunId,
+      url: visualResult.url,
+      finalUrl: visualResult.finalUrl,
+      statusCode: visualResult.statusCode,
+      title: visualResult.title,
+      changedScreenshot,
+      changedText,
+      screenshotHash: visualResult.screenshotHash,
+      previousScreenshotHash: prevScreenshot,
+      visibleTextHash: visualResult.visibleTextHash,
+      previousVisibleTextHash: prevText,
+      screenshotUrlHint: visualRunId
+        ? `/assets/${asset.id}/visual-analysis/${visualRunId}/screenshot`
+        : null,
+      checkedAt: visualResult.checkedAt,
+    },
+    aiWhyJson: { ...rec, changedScreenshot, changedText },
+  });
+  log('visual change finding upserted', { key, severity, aiScore, changedScreenshot, changedText });
 }
 
 async function processSingleSignal(

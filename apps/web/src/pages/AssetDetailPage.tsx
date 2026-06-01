@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getAsset, deleteAsset, runNow, getScanHistory, getFindings, ackFinding,
-  setCritical, updateScanInterval,
+  resolveFinding, reopenFinding, setCritical, updateScanInterval,
 } from '../api/api';
 import { Spinner } from '../components/Spinner';
 import { SeverityBadge, ScanStatusBadge, getSeverityConfig } from '../components/Badge';
@@ -617,10 +617,13 @@ function AiReportPanel({ finding }: { finding: Finding }) {
 
 // ─── Finding card ─────────────────────────────────────────────────────────────
 
-function FindingCard({ finding, onAck, acking }: {
+function FindingCard({ finding, onAck, acking, onResolve, onReopen, resolving }: {
   finding: Finding;
   onAck: () => void;
   acking: boolean;
+  onResolve: () => void;
+  onReopen: () => void;
+  resolving: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const isResolved = finding.resolvedAt !== null;
@@ -722,10 +725,46 @@ function FindingCard({ finding, onAck, acking }: {
             </svg>
 
             {!isResolved && (
+              <>
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); onAck(); }}
+                  disabled={acking}
+                  className="text-xs px-3 py-1.5 rounded-lg font-semibold disabled:opacity-50 transition-all"
+                  style={{
+                    background: 'rgba(255,255,255,0.06)',
+                    color: '#94a3b8',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.1)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'; }}
+                >
+                  {acking ? '...' : 'Onayla'}
+                </button>
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); onResolve(); }}
+                  disabled={resolving}
+                  title="Bulguyu elle çöz (sorun sürerse sonraki taramada yeniden açılır)"
+                  className="text-xs px-3 py-1.5 rounded-lg font-semibold disabled:opacity-50 transition-all"
+                  style={{
+                    background: 'rgba(16,185,129,0.12)',
+                    color: '#34d399',
+                    border: '1px solid rgba(16,185,129,0.25)',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(16,185,129,0.2)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(16,185,129,0.12)'; }}
+                >
+                  {resolving ? '...' : 'Çöz'}
+                </button>
+              </>
+            )}
+            {isResolved && (
               <button
                 type="button"
-                onClick={e => { e.stopPropagation(); onAck(); }}
-                disabled={acking}
+                onClick={e => { e.stopPropagation(); onReopen(); }}
+                disabled={resolving}
+                title="Çözülmüş bulguyu yeniden aç"
                 className="text-xs px-3 py-1.5 rounded-lg font-semibold disabled:opacity-50 transition-all"
                 style={{
                   background: 'rgba(255,255,255,0.06)',
@@ -735,7 +774,7 @@ function FindingCard({ finding, onAck, acking }: {
                 onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.1)'; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'; }}
               >
-                {acking ? '...' : 'Onayla'}
+                {resolving ? '...' : 'Yeniden Aç'}
               </button>
             )}
           </div>
@@ -899,6 +938,16 @@ export function AssetDetailPage() {
 
   const ackMut = useMutation({
     mutationFn: (fid: string) => ackFinding(fid),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['findings', id] }),
+  });
+
+  const resolveMut = useMutation({
+    mutationFn: (fid: string) => resolveFinding(fid),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['findings', id] }),
+  });
+
+  const reopenMut = useMutation({
+    mutationFn: (fid: string) => reopenFinding(fid),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['findings', id] }),
   });
 
@@ -1138,6 +1187,12 @@ export function AssetDetailPage() {
                     finding={f}
                     onAck={() => ackMut.mutate(f.id)}
                     acking={ackMut.isPending && ackMut.variables === f.id}
+                    onResolve={() => resolveMut.mutate(f.id)}
+                    onReopen={() => reopenMut.mutate(f.id)}
+                    resolving={
+                      (resolveMut.isPending && resolveMut.variables === f.id) ||
+                      (reopenMut.isPending && reopenMut.variables === f.id)
+                    }
                   />
                 ))}
               </div>

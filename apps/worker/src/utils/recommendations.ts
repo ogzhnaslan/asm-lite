@@ -592,6 +592,45 @@ export type VisualSignalKey =
   | 'ERROR_PAGE_VISIBLE'
   | 'EMPTY_PAGE_DETECTED';
 
+// Görsel değişiklik (screenshot/visibleText hash farkı) — önceki taramaya göre
+// sayfanın görsel veya metin içeriği değişti. Tek başına zafiyet değil; bir
+// izleme/farkındalık sinyalidir (defacement, içerik değişikliği, yeniden
+// yapılandırma veya meşru güncelleme olabilir).
+export function forVisualChange(args: {
+  url: string | null;
+  title: string | null;
+  changedScreenshot: boolean;
+  changedText: boolean;
+}): Recommendation {
+  const urlHint = args.url ?? '(unknown)';
+  const what =
+    args.changedScreenshot && args.changedText
+      ? 'hem görsel (screenshot) hem de metin içeriği'
+      : args.changedScreenshot
+        ? 'görsel (screenshot) içeriği'
+        : 'metin içeriği';
+
+  return {
+    summary: `Önceki taramaya göre sayfanın ${what} değişti.`,
+    reasons: [
+      `Hedef URL: ${urlHint}`,
+      args.title ? `Sayfa başlığı: "${args.title}"` : null,
+      args.changedScreenshot ? 'Screenshot hash değeri önceki taramadan farklı.' : null,
+      args.changedText ? 'Görünür metin (visibleText) hash değeri önceki taramadan farklı.' : null,
+    ].filter((x): x is string => !!x),
+    impact:
+      'Görsel/metin değişikliği tek başına bir güvenlik açığı değildir; meşru bir içerik ' +
+      'güncellemesi de olabilir. Ancak beklenmeyen bir değişiklik defacement, içerik enjeksiyonu, ' +
+      'yetkisiz değişiklik veya altyapı/DNS yönlendirmesi belirtisi olabilir.',
+    recommendations: [
+      'Değişikliğin beklenen/planlı bir güncelleme mi yoksa beklenmedik mi olduğunu doğrulayın.',
+      'Beklenmedikse içerik yönetim sistemine ve son deploy/erişim loglarına bakın.',
+      'Defacement şüphesi varsa sayfayı manuel inceleyin ve değişikliği yapan hesabı/erişimi araştırın.',
+      'Değişiklik DNS/hosting kaynaklıysa ASN/GeoIP ve DNS kayıt değişikliği bulgularıyla birlikte değerlendirin.',
+    ],
+  };
+}
+
 export function forVisualSignal(args: {
   signal: VisualSignalKey;
   url: string | null;

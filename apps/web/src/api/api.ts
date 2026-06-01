@@ -74,6 +74,15 @@ export const getFindings = (
 export const ackFinding = (id: string) =>
   apiClient.patch<Finding>(`/findings/${id}/ack`).then(r => r.data);
 
+// Manuel resolve — bulguyu elle kapat. Sorun bir sonraki taramada hâlâ varsa
+// worker bulguyu yeniden açar.
+export const resolveFinding = (id: string) =>
+  apiClient.patch<Finding>(`/findings/${id}/resolve`).then(r => r.data);
+
+// Manuel olarak kapatılmış bir bulguyu yeniden aç.
+export const reopenFinding = (id: string) =>
+  apiClient.patch<Finding>(`/findings/${id}/reopen`).then(r => r.data);
+
 // ─── Passive Intelligence Lookup ─────────────────────────────────────────────
 
 export const lookupPassiveIntelligence = (target: string) =>

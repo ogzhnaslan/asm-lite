@@ -104,7 +104,8 @@ describe('processVisualFindings', () => {
       visualResult: makeResult({ signals: [] }),
     });
     expect(mockPrisma.finding.upsert).not.toHaveBeenCalled();
-    expect(findResolveCount()).toBe(5);
+    // 5 sinyal resolve + 1 VISUAL_CHANGE resolve (baseline yok → değişiklik üretilmez)
+    expect(findResolveCount()).toBe(6);
     // Her sinyal key formatı doğru mu
     const keys = (mockPrisma.finding.updateMany.mock.calls as Array<[{ where: { key: string } }]>).map((c) => c[0].where.key);
     expect(keys).toEqual(expect.arrayContaining(
@@ -123,8 +124,8 @@ describe('processVisualFindings', () => {
     expect(adminFinding).toBeDefined();
     expect(adminFinding!.create.severity).toBe('MEDIUM');
     expect(adminFinding!.create.aiScore).toBe(65);
-    // Diğer 4 sinyal resolve
-    expect(findResolveCount()).toBe(4);
+    // Diğer 4 sinyal resolve + 1 VISUAL_CHANGE resolve (baseline yok)
+    expect(findResolveCount()).toBe(5);
   });
 
   it('ADMIN + LOGIN birlikte → ADMIN HIGH (85), LOGIN LOW (35)', async () => {
@@ -291,6 +292,72 @@ describe('processVisualFindings', () => {
       }),
     });
     expect(mockPrisma.finding.upsert).toHaveBeenCalledTimes(3);
-    expect(findResolveCount()).toBe(2);   // DEFAULT_SERVER_PAGE + EMPTY
+    // DEFAULT_SERVER_PAGE + EMPTY + VISUAL_CHANGE (baseline yok) = 3 resolve
+    expect(findResolveCount()).toBe(3);
+  });
+
+  // ─── VISUAL_CHANGE_DETECTED ────────────────────────────────────────────────
+
+  function findChangeUpsert() {
+    return (mockPrisma.finding.upsert.mock.calls as Array<[{ create: { type: string } }]>)
+      .find((c) => c[0].create.type === 'VISUAL_CHANGE_DETECTED')?.[0] as
+      | { create: { severity: string; aiScore: number; key: string; dataJson: Record<string, unknown> } }
+      | undefined;
+  }
+
+  it('baseline yoksa (previous=null) → VISUAL_CHANGE upsert yok, resolve var', async () => {
+    await processVisualFindings(mockPrisma as any, {
+      asset, scanRunId,
+      visualResult: makeResult({ signals: [] }),
+      previous: null,
+    });
+    expect(findChangeUpsert()).toBeUndefined();
+    const keys = (mockPrisma.finding.updateMany.mock.calls as Array<[{ where: { key: string } }]>).map((c) => c[0].where.key);
+    expect(keys).toContain('VISUAL_CHANGE:example.com');
+  });
+
+  it('hash aynıysa değişiklik yok → VISUAL_CHANGE resolve', async () => {
+    await processVisualFindings(mockPrisma as any, {
+      asset, scanRunId,
+      visualResult: makeResult({ signals: [], screenshotHash: 'x'.repeat(64), visibleTextHash: 'y'.repeat(64) }),
+      previous: { screenshotHash: 'x'.repeat(64), visibleTextHash: 'y'.repeat(64) },
+    });
+    expect(findChangeUpsert()).toBeUndefined();
+  });
+
+  it('hem screenshot hem metin değişti → MEDIUM (50)', async () => {
+    await processVisualFindings(mockPrisma as any, {
+      asset, scanRunId,
+      visualResult: makeResult({ signals: [], screenshotHash: 'new1'.repeat(16), visibleTextHash: 'new2'.repeat(16) }),
+      previous: { screenshotHash: 'old1'.repeat(16), visibleTextHash: 'old2'.repeat(16) },
+    });
+    const change = findChangeUpsert();
+    expect(change).toBeDefined();
+    expect(change!.create.severity).toBe('MEDIUM');
+    expect(change!.create.aiScore).toBe(50);
+    expect(change!.create.key).toBe('VISUAL_CHANGE:example.com');
+    expect(change!.create.dataJson).toMatchObject({ changedScreenshot: true, changedText: true });
+  });
+
+  it('sadece metin değişti → LOW (30)', async () => {
+    await processVisualFindings(mockPrisma as any, {
+      asset, scanRunId,
+      visualResult: makeResult({ signals: [], screenshotHash: 'same'.repeat(16), visibleTextHash: 'newtext'.repeat(8) + 'aaaaaaaa' }),
+      previous: { screenshotHash: 'same'.repeat(16), visibleTextHash: 'oldtext'.repeat(8) + 'aaaaaaaa' },
+    });
+    const change = findChangeUpsert();
+    expect(change).toBeDefined();
+    expect(change!.create.severity).toBe('LOW');
+    expect(change!.create.aiScore).toBe(30);
+    expect(change!.create.dataJson).toMatchObject({ changedScreenshot: false, changedText: true });
+  });
+
+  it('previous skipped/error ise baseline sayılmaz → upsert yok', async () => {
+    await processVisualFindings(mockPrisma as any, {
+      asset, scanRunId,
+      visualResult: makeResult({ signals: [], screenshotHash: 'new'.repeat(20) + 'aaaa', visibleTextHash: 'new'.repeat(20) + 'bbbb' }),
+      previous: { skipped: true, screenshotHash: null, visibleTextHash: null },
+    });
+    expect(findChangeUpsert()).toBeUndefined();
   });
 });
