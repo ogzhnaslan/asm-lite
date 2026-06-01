@@ -5,25 +5,25 @@ import { QUEUE_SCAN } from '../queue/queue.constants';
 
 describe('ScanScheduleService', () => {
   let service: ScanScheduleService;
-  let queueAdd: jest.Mock;
-  let queueGetRepeatableJobs: jest.Mock;
-  let queueRemoveRepeatableByKey: jest.Mock;
+  let upsertJobScheduler: jest.Mock;
+  let removeJobScheduler: jest.Mock;
+  let getJobSchedulers: jest.Mock;
+  let getRepeatableJobs: jest.Mock;
+  let removeRepeatableByKey: jest.Mock;
 
   beforeEach(async () => {
-    queueAdd = jest.fn().mockResolvedValue({ id: 'job-1' });
-    queueGetRepeatableJobs = jest.fn().mockResolvedValue([]);
-    queueRemoveRepeatableByKey = jest.fn().mockResolvedValue(undefined);
+    upsertJobScheduler = jest.fn().mockResolvedValue({ id: 'job-1' });
+    removeJobScheduler = jest.fn().mockResolvedValue(true);
+    getJobSchedulers = jest.fn().mockResolvedValue([]);
+    getRepeatableJobs = jest.fn().mockResolvedValue([]);
+    removeRepeatableByKey = jest.fn().mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ScanScheduleService,
         {
           provide: getQueueToken(QUEUE_SCAN),
-          useValue: {
-            add: queueAdd,
-            getRepeatableJobs: queueGetRepeatableJobs,
-            removeRepeatableByKey: queueRemoveRepeatableByKey,
-          },
+          useValue: { upsertJobScheduler, removeJobScheduler, getJobSchedulers, getRepeatableJobs, removeRepeatableByKey },
         },
       ],
     }).compile();
@@ -32,91 +32,88 @@ describe('ScanScheduleService', () => {
   });
 
   describe('schedule', () => {
-    it('tekrar eden job oluşturulur', async () => {
+    it('idempotent scheduler upsert edilir (stable id ile)', async () => {
       await service.schedule('asset-1', '24h');
 
-      expect(queueAdd).toHaveBeenCalledWith(
-        'scan.run',
-        { assetId: 'asset-1' },
+      expect(upsertJobScheduler).toHaveBeenCalledWith(
+        'scan:schedule:asset-1',
+        { every: 24 * 60 * 60 * 1000 },
         expect.objectContaining({
-          repeat: { every: 24 * 60 * 60 * 1000 },
-          jobId: 'scan:schedule:asset-1',
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 2000 },
+          name: 'scan.run',
+          data: { assetId: 'asset-1' },
+          opts: expect.objectContaining({ attempts: 3, backoff: { type: 'exponential', delay: 2000 } }),
         }),
       );
     });
 
-    it('mevcut job varsa önce kaldırılır', async () => {
-      queueGetRepeatableJobs.mockResolvedValue([{ id: 'scan:schedule:asset-1', key: 'old-key' }]);
-
-      await service.schedule('asset-1', '1h');
-
-      expect(queueRemoveRepeatableByKey).toHaveBeenCalledWith('old-key');
-      expect(queueAdd).toHaveBeenCalled();
-    });
-
     it('interval ms doğru hesaplanır', async () => {
       await service.schedule('asset-2', '6h');
-
-      expect(queueAdd).toHaveBeenCalledWith(
-        'scan.run',
-        { assetId: 'asset-2' },
-        expect.objectContaining({ repeat: { every: 6 * 60 * 60 * 1000 } }),
+      expect(upsertJobScheduler).toHaveBeenCalledWith(
+        'scan:schedule:asset-2',
+        { every: 6 * 60 * 60 * 1000 },
+        expect.anything(),
       );
     });
 
     it('bilinmeyen interval 24h olarak varsayılan alınır', async () => {
       await service.schedule('asset-3', 'invalid');
-
-      expect(queueAdd).toHaveBeenCalledWith(
-        'scan.run',
-        { assetId: 'asset-3' },
-        expect.objectContaining({ repeat: { every: 24 * 60 * 60 * 1000 } }),
+      expect(upsertJobScheduler).toHaveBeenCalledWith(
+        'scan:schedule:asset-3',
+        { every: 24 * 60 * 60 * 1000 },
+        expect.anything(),
       );
+    });
+
+    it('aynı asset için tekrar çağrı yeni repeatable EKLEMEZ (idempotent)', async () => {
+      await service.schedule('asset-1', '24h');
+      await service.schedule('asset-1', '24h');
+      // İki upsert çağrısı da AYNI stable id ile → BullMQ tek scheduler tutar.
+      expect(upsertJobScheduler).toHaveBeenCalledTimes(2);
+      expect(upsertJobScheduler.mock.calls[0][0]).toBe('scan:schedule:asset-1');
+      expect(upsertJobScheduler.mock.calls[1][0]).toBe('scan:schedule:asset-1');
     });
   });
 
   describe('unschedule', () => {
-    it('job yoksa hiçbir şey yapmaz', async () => {
-      queueGetRepeatableJobs.mockResolvedValue([]);
-
+    it('stable id ile removeJobScheduler çağrılır', async () => {
       await service.unschedule('asset-1');
-
-      expect(queueRemoveRepeatableByKey).not.toHaveBeenCalled();
+      expect(removeJobScheduler).toHaveBeenCalledWith('scan:schedule:asset-1');
     });
+  });
 
-    it('job varsa kaldırılır', async () => {
-      queueGetRepeatableJobs.mockResolvedValue([{ id: 'scan:schedule:asset-1', key: 'key-123' }]);
-
-      await service.unschedule('asset-1');
-
-      expect(queueRemoveRepeatableByKey).toHaveBeenCalledWith('key-123');
-    });
-
-    it('aynı asset için duplicate job varsa hepsi kaldırılır', async () => {
-      queueGetRepeatableJobs.mockResolvedValue([
-        { id: 'scan:schedule:asset-1', key: 'key-a' },
-        { id: 'scan:schedule:asset-1', key: 'key-b' },
+  describe('reconcile', () => {
+    it('tüm scheduler + legacy repeatable temizlenir, verified asset\'ler için scheduler kurulur', async () => {
+      getJobSchedulers.mockResolvedValue([
+        { id: 'scan:schedule:old-1' },
+        { id: 'scan:schedule:deleted-2' },
+      ]);
+      getRepeatableJobs.mockResolvedValue([
+        { id: undefined, key: 'legacy-key-a' },
+        { id: undefined, key: 'legacy-key-b' },
       ]);
 
-      await service.unschedule('asset-1');
-
-      expect(queueRemoveRepeatableByKey).toHaveBeenCalledTimes(2);
-      expect(queueRemoveRepeatableByKey).toHaveBeenCalledWith('key-a');
-      expect(queueRemoveRepeatableByKey).toHaveBeenCalledWith('key-b');
-    });
-
-    it('başka asset jobları etkilenmez', async () => {
-      queueGetRepeatableJobs.mockResolvedValue([
-        { id: 'scan:schedule:asset-1', key: 'key-1' },
-        { id: 'scan:schedule:asset-2', key: 'key-2' },
+      const result = await service.reconcile([
+        { id: 'asset-1', scanInterval: '24h' },
+        { id: 'asset-2', scanInterval: '1h' },
       ]);
 
-      await service.unschedule('asset-1');
+      // tüm eski scheduler'lar kaldırıldı
+      expect(removeJobScheduler).toHaveBeenCalledWith('scan:schedule:old-1');
+      expect(removeJobScheduler).toHaveBeenCalledWith('scan:schedule:deleted-2');
+      // legacy repeatable'lar key ile temizlendi
+      expect(removeRepeatableByKey).toHaveBeenCalledWith('legacy-key-a');
+      expect(removeRepeatableByKey).toHaveBeenCalledWith('legacy-key-b');
+      // verified asset'ler için scheduler kuruldu
+      expect(upsertJobScheduler).toHaveBeenCalledWith('scan:schedule:asset-1', expect.anything(), expect.anything());
+      expect(upsertJobScheduler).toHaveBeenCalledWith('scan:schedule:asset-2', expect.anything(), expect.anything());
 
-      expect(queueRemoveRepeatableByKey).toHaveBeenCalledTimes(1);
-      expect(queueRemoveRepeatableByKey).toHaveBeenCalledWith('key-1');
+      expect(result).toEqual({ removedSchedulers: 2, purgedLegacy: 2, scheduled: 2 });
+    });
+
+    it('boş veritabanı → sadece temizlik, scheduler kurulmaz', async () => {
+      const result = await service.reconcile([]);
+      expect(upsertJobScheduler).not.toHaveBeenCalled();
+      expect(result.scheduled).toBe(0);
     });
   });
 
