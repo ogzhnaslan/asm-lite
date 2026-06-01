@@ -213,6 +213,8 @@ cd apps/api && pnpm prisma migrate dev --name <migration-adi>
 # NOT: pnpm + Prisma tip sync — generate sonrası pnpm store'daki .prisma/client'ı da güncelle:
 # cp apps/api/node_modules/.prisma/client/index.d.ts node_modules/.pnpm/@prisma+client@7.4.1_.../node_modules/.prisma/client/index.d.ts
 # (build hataları için gerekli — tek seferlik işlem, pnpm install sonrası otomatik)
+# CI'da otomatik: .github/workflows/ci.yml "Generate Prisma client" adımı generate sonrası
+# bu store senkronizasyonunu kendisi yapar (temiz install'da @prisma/client stub kalmasın diye).
 # Yeni migration oluştur
 
 # Production migration uygula
