@@ -2,6 +2,27 @@ const RDAP_BASE = 'https://rdap.org/domain';
 const TR_RDAP_BASE = 'https://rdap.com.tr/wp-json/rdap/v1/query';
 const TIMEOUT_MS = 8000;
 
+// IANA RDAP bootstrap — TLD → yetkili RDAP sunucusu eşlemesi. rdap.org sadece
+// bir "convenience redirect" servisidir ve bazı ağlarda engellenebilir/erişilemez
+// (RDAP_REQUEST_FAILED). Doğru yöntem: IANA bootstrap'tan TLD'nin gerçek RDAP
+// sunucusunu bulup DOĞRUDAN sorgulamak. rdap.org yalnızca son-çare fallback.
+const IANA_BOOTSTRAP_URL = 'https://data.iana.org/rdap/dns.json';
+const BOOTSTRAP_TTL_MS = 24 * 60 * 60 * 1000; // 24 saat
+
+// Module-level cache (phishtank feed cache pattern'i ile aynı).
+let cachedBootstrap: Map<string, string> | null = null;
+let cachedBootstrapAt = 0;
+
+// Test izolasyonu için cache sıfırlama.
+export function __resetRdapBootstrapCache(): void {
+  cachedBootstrap = null;
+  cachedBootstrapAt = 0;
+}
+
+interface IanaBootstrap {
+  services?: Array<[string[], string[]]>;
+}
+
 export interface RdapCheckResult {
   domain: string;
   registrar: string | null;
@@ -294,26 +315,77 @@ async function fetchJson(url: string): Promise<{ ok: true; data: unknown } | { o
   }
 }
 
+// IANA bootstrap'ı indirip TLD → RDAP base URL haritasını döndürür (cache'li).
+// Erişilemezse mevcut (stale) cache döner, o da yoksa null. Hata fırlatmaz.
+async function loadBootstrap(): Promise<Map<string, string> | null> {
+  if (cachedBootstrap && Date.now() - cachedBootstrapAt < BOOTSTRAP_TTL_MS) {
+    return cachedBootstrap;
+  }
+
+  const res = await fetchJson(IANA_BOOTSTRAP_URL);
+  if (!res.ok) {
+    return cachedBootstrap; // stale cache veya null — rdap.org fallback devreye girer
+  }
+
+  const data = res.data as IanaBootstrap;
+  const map = new Map<string, string>();
+  for (const svc of data.services ?? []) {
+    const tlds = Array.isArray(svc?.[0]) ? svc[0] : [];
+    const urls = Array.isArray(svc?.[1]) ? svc[1] : [];
+    const httpsUrl = urls.find((u) => typeof u === 'string' && u.startsWith('https://')) ?? urls[0];
+    if (typeof httpsUrl !== 'string' || !httpsUrl) continue;
+    const base = httpsUrl.endsWith('/') ? httpsUrl : `${httpsUrl}/`;
+    for (const tld of tlds) {
+      if (typeof tld === 'string' && tld) map.set(tld.toLowerCase(), base);
+    }
+  }
+
+  if (map.size > 0) {
+    cachedBootstrap = map;
+    cachedBootstrapAt = Date.now();
+  }
+  return cachedBootstrap;
+}
+
+// Domain'in TLD'sine karşılık gelen yetkili RDAP base URL'ini bulur (yoksa null).
+async function resolveRdapBase(domain: string): Promise<string | null> {
+  const tld = domain.split('.').pop()?.toLowerCase();
+  if (!tld) return null;
+  const bootstrap = await loadBootstrap();
+  return bootstrap?.get(tld) ?? null;
+}
+
 export async function checkRdap(domain: string): Promise<RdapCheckResult> {
   const normalizedDomain = domain.trim().toLowerCase().replace(/\.$/, '');
 
-  const primary = await fetchJson(`${RDAP_BASE}/${encodeURIComponent(normalizedDomain)}`);
-
-  if (primary.ok) {
-    return fromStandardRdap(normalizedDomain, primary.data as RdapResponse);
-  }
-
-  if (primary.error === 'HTTP_404' && isTrDomain(normalizedDomain)) {
-    const fallback = await fetchJson(`${TR_RDAP_BASE}?q=${encodeURIComponent(normalizedDomain)}`);
-
-    if (fallback.ok) {
-      return fromTrRdap(normalizedDomain, fallback.data as TrRdapResponse);
+  // .tr ccTLD → doğrudan TR RDAP sunucusu (IANA bootstrap'te ccTLD genelde yok,
+  // rdap.org da .tr'yi yönlendirmez/erişilemez olabilir). TR başarısızsa rdap.org dene.
+  if (isTrDomain(normalizedDomain)) {
+    const tr = await fetchJson(`${TR_RDAP_BASE}?q=${encodeURIComponent(normalizedDomain)}`);
+    if (tr.ok) {
+      return fromTrRdap(normalizedDomain, tr.data as TrRdapResponse);
     }
-
-    return empty(normalizedDomain, fallback.error);
+    const agg = await fetchJson(`${RDAP_BASE}/${encodeURIComponent(normalizedDomain)}`);
+    return agg.ok ? fromStandardRdap(normalizedDomain, agg.data as RdapResponse) : empty(normalizedDomain, tr.error);
   }
 
-  return empty(normalizedDomain, primary.error);
+  // 1. IANA bootstrap ile TLD'nin yetkili RDAP sunucusunu bul, DOĞRUDAN sorgula.
+  const base = await resolveRdapBase(normalizedDomain);
+  if (base) {
+    const direct = await fetchJson(`${base}domain/${encodeURIComponent(normalizedDomain)}`);
+    if (direct.ok) {
+      return fromStandardRdap(normalizedDomain, direct.data as RdapResponse);
+    }
+    // Bu sunucu başarısız olursa rdap.org fallback'ine düş.
+  }
+
+  // 2. Fallback: rdap.org aggregator (bazı ağlarda engelli olabilir).
+  const aggregator = await fetchJson(`${RDAP_BASE}/${encodeURIComponent(normalizedDomain)}`);
+  if (aggregator.ok) {
+    return fromStandardRdap(normalizedDomain, aggregator.data as RdapResponse);
+  }
+
+  return empty(normalizedDomain, aggregator.error);
 }
 
 function empty(domain: string, error: string): RdapCheckResult {
